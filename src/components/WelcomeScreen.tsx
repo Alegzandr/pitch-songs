@@ -42,7 +42,10 @@ export function WelcomeScreen({
       <OverlayScrollbar target={welcomeShellRef} insetTop={24} insetBottom={24} />
       <AmbientScene />
       <MoodTransition />
-      <div className="flex items-center justify-end gap-2 px-4 sm:px-6 py-4">
+      {/* Sticky so the settings entry point stays reachable while the landing
+         scrolls; pointer-events gymnastics keep the full-width row from
+         swallowing clicks on content sliding underneath it. */}
+      <div className="sticky top-0 z-40 flex items-center justify-end gap-2 px-4 sm:px-6 py-4 pointer-events-none [&>*]:pointer-events-auto">
         <SettingsMenu />
       </div>
 

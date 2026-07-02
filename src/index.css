@@ -515,6 +515,14 @@
     height: 0;
   }
 
+  /* Short-height mode: when the between-rails band drops below CONSOLE_SHORT_HEIGHT
+     (App.tsx flags <main> with `.consoles-short`), consoles shed their supporting
+     hint lines so controls stay compact and legible instead of being clipped under
+     the scroll fade. Same threshold that reflows the centre - both switch together. */
+  .consoles-short .console-hint {
+    display: none;
+  }
+
   /* Scroll cue: dissolve the content at whichever edge still hides more, so an
      overflowing panel reads as scrollable even after the overlay scrollbar has
      faded. <ScrollFade> ramps --fade-t/--fade-b from the live scroll position;
@@ -1909,7 +1917,11 @@
     }
     /* Both side consoles hinge on their inner edge (the one facing the central
        waveform) and swing their outer edge forward - a cockpit "V" wrapping
-       toward the viewer, mirrored left/right. */
+       toward the viewer, mirrored left/right. The pivot sits at the centre of that
+       inner edge so the corners project symmetrically up AND down. (This is safe
+       only because each console holds a constant height - EFFECTS reserves its
+       adjustments height - so the centre-pivot foreshortening is identical across
+       effects and never shifts the projected top edge.) */
     .hud-console-left {
       transform: rotateY(18deg);
       transform-origin: right center;
@@ -2153,22 +2165,32 @@
    ends. Every animation is a both-filled one-shot on transform/opacity/filter,
    so nothing here can drift the resting layout. */
 @layer utilities {
+  /* Glass rule of the boot: backdrop-filter only samples the scene when no
+     ANCESTOR carries an animated opacity or filter (either makes the ancestor
+     the backdrop root, so the glass goes inert for the whole fade and pops on
+     at its last frame). Transform is safe, and an element's OWN opacity
+     attenuates its glass continuously. Hence: the rails slide in without
+     fading - their glass (the element's blur, or the ::after plate in
+     immersive) is live from frame 1 - and every fade below sits directly on
+     the glass element itself, never on a wrapper. */
   .cockpit-boot .hud-rail-top {
     animation: boot-rail-down 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .cockpit-boot .hud-rail-bottom {
     animation: boot-rail-up 560ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
   }
-  /* The raked consoles carry a rotateY pose - animate opacity/filter only,
-     never transform, so the boot can't fight the visor geometry. */
-  .cockpit-boot .hud-console-left {
-    animation: boot-light 700ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+  /* The raked consoles carry a rotateY pose, so their fade lands on the glass
+     Cards (self-opacity), never on the .hud-console wrapper (backdrop root)
+     and never as a transform (it would fight the visor geometry). */
+  .cockpit-boot .hud-console-left .hud-frame {
+    animation: boot-glass 700ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
   }
-  .cockpit-boot .hud-console-right {
-    animation: boot-light 700ms cubic-bezier(0.22, 1, 0.36, 1) 180ms both;
+  .cockpit-boot .hud-console-right .hud-frame {
+    animation: boot-glass 700ms cubic-bezier(0.22, 1, 0.36, 1) 180ms both;
   }
   /* Centre plates (track identity + wave instrument) - flat, so a whisper of
-     scale is safe here. */
+     scale is safe here (but no filter: same backdrop-root trap as the
+     consoles - the frames are glass themselves). */
   .cockpit-boot section .hud-frame {
     animation: boot-plate 680ms cubic-bezier(0.22, 1, 0.36, 1) 220ms both;
   }
@@ -2188,17 +2210,24 @@
   .cockpit-boot dl > *:nth-child(5) { animation-delay: 560ms; }
   .cockpit-boot dl > *:nth-child(6) { animation-delay: 605ms; }
 
+  /* No opacity here: the rails' glass must be live from the first frame (see
+     the backdrop-root note above), so they arrive by motion alone. */
   @keyframes boot-rail-down {
-    from { opacity: 0; transform: translateY(-12px); }
+    from { transform: translateY(-14px); }
   }
   @keyframes boot-rail-up {
-    from { opacity: 0; transform: translateY(12px); }
+    from { transform: translateY(14px); }
   }
   @keyframes boot-light {
     from { opacity: 0; filter: blur(10px); }
   }
+  /* Self-opacity fade for glass elements: their own opacity attenuates the
+     backdrop blur continuously (unlike a wrapper fade, which disables it). */
+  @keyframes boot-glass {
+    from { opacity: 0; }
+  }
   @keyframes boot-plate {
-    from { opacity: 0; transform: scale(0.984); filter: blur(7px); }
+    from { opacity: 0; transform: scale(0.984); }
   }
   @keyframes boot-hairline {
     from { opacity: 0; clip-path: inset(0 100% 0 0); }
@@ -2211,8 +2240,8 @@
   @media (prefers-reduced-motion: reduce) {
     .cockpit-boot .hud-rail-top,
     .cockpit-boot .hud-rail-bottom,
-    .cockpit-boot .hud-console-left,
-    .cockpit-boot .hud-console-right,
+    .cockpit-boot .hud-console-left .hud-frame,
+    .cockpit-boot .hud-console-right .hud-frame,
     .cockpit-boot section .hud-frame,
     .cockpit-boot .hud-frame::before,
     .cockpit-boot .hud-frame::after,

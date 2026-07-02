@@ -139,12 +139,16 @@ export const VIEWPORT = {
      */
     MIN_DESKTOP_WIDTH: 1024,
     /**
-     * Below this between-rails height (px, matching --col-max-h), the centre's two
-     * stacked plates (track identity + waveform) can no longer both breathe, so they
-     * reflow SIDE BY SIDE - a shorter pair that scrolls/caps like the raked side
-     * consoles instead of the taller stack running into the transport rail.
+     * Below this between-rails height (px, matching --col-max-h), the cockpit
+     * enters its short-height mode: the centre's two stacked plates (track identity
+     * + waveform) reflow SIDE BY SIDE (when wide enough - see CENTER_SPLIT_MIN_WIDTH)
+     * instead of running the stack into the transport rail, and the consoles drop
+     * their supporting hint lines (`.console-hint`) so every panel stays compact and
+     * legible. One threshold drives both, so nothing switches out of step and no
+     * panel is left half-clipped in an in-between band. avail = viewport - the top
+     * and bottom rails - main's padding, so this sits ~232px below the window height.
      */
-    CENTER_STACK_MIN_HEIGHT: 460,
+    CONSOLE_SHORT_HEIGHT: 552,
     /**
      * Minimum viewport width (px) for that short-height side-by-side centre reflow.
      * Splitting the centre column spends its width on two tracks; below this there

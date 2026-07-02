@@ -168,10 +168,12 @@ export const MoodRail = memo(function MoodRail() {
         <BeatToggle
           label={t('studio.backdrop')}
           description={t('studio.backdropHint')}
-          // On a short viewport the console shrinks and scrolls; drop the hint
+          // In short-height mode the console shrinks and scrolls; drop the hint
           // line so the toggle stays compact and readable instead of getting
-          // clipped under the scroll fade.
-          descriptionClassName="[@media(max-height:820px)]:hidden"
+          // clipped under the scroll fade. Toggled by `.consoles-short` on <main>
+          // (App.tsx), the same measurement that reflows the centre - so both
+          // switch together, off one threshold.
+          descriptionClassName="console-hint"
           pressed={showBackdrop}
           onToggle={toggleBackdrop}
         />

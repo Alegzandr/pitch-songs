@@ -320,6 +320,10 @@ function App() {
   // the viewport is wide enough to spare the width), the identity plate and the
   // waveform reflow side by side instead of running the stack into the transport.
   const [centerCompact, setCenterCompact] = useState(false);
+  // Short-height mode (height only): drives the console hint lines' visibility.
+  // `centerCompact` is this AND wide enough to split - so both switch off the same
+  // measurement and never fall out of step.
+  const [shortConsole, setShortConsole] = useState(false);
 
   // Publish the between-rails height as `--col-max-h`: the side consoles cap their
   // frame to it and scroll their contents INSIDE the frame past that point, so an
@@ -341,13 +345,13 @@ function App() {
       if (main.style.getPropertyValue('--col-max-h') !== `${avail}px`) {
         main.style.setProperty('--col-max-h', `${avail}px`);
       }
-      // Reflow the centre to side-by-side only when it's both short AND wide enough
-      // to split; changing this never feeds back into `avail` (it caps the centre,
-      // not the rails), so there's no measure/layout loop.
-      const compact =
-        avail > 0 &&
-        avail < VIEWPORT.CENTER_STACK_MIN_HEIGHT &&
-        shell.clientWidth >= VIEWPORT.CENTER_SPLIT_MIN_WIDTH;
+      // Enter short-height mode when the band drops below the threshold; the centre
+      // additionally needs the width to split side-by-side. Neither feeds back into
+      // `avail` (they cap the centre / hide hints, not the rails), so there's no
+      // measure/layout loop.
+      const short = avail > 0 && avail < VIEWPORT.CONSOLE_SHORT_HEIGHT;
+      const compact = short && shell.clientWidth >= VIEWPORT.CENTER_SPLIT_MIN_WIDTH;
+      setShortConsole((prev) => (prev === short ? prev : short));
       setCenterCompact((prev) => (prev === compact ? prev : compact));
     };
     apply();
@@ -453,7 +457,7 @@ function App() {
          up and down (rotateY tilt about the vertical centre), so a tall console needs
          equal clearance at each rail or a corner kisses it - past this the console
          just scrolls, the fade cueing it. */}
-      <main ref={mainRef} className={`flex-1 min-h-0 overflow-hidden ${SHELL_WIDTH_CLASS} pt-10 sm:pt-12 pb-10 sm:pb-12 flex flex-col gap-8 sm:gap-10 lg:[justify-content:safe_center]`}>
+      <main ref={mainRef} className={`flex-1 min-h-0 overflow-hidden ${SHELL_WIDTH_CLASS} pt-10 sm:pt-12 pb-10 sm:pb-12 flex flex-col gap-8 sm:gap-10 lg:[justify-content:safe_center]${shortConsole ? ' consoles-short' : ''}`}>
         {errorBanner}
 
         {/* Cockpit: raked FX console | flat waveform centrepiece | raked mood
@@ -467,7 +471,14 @@ function App() {
            `fr` centre, so their maxes and the gaps are stepped per breakpoint to
            leave the centrepiece the lion's share (e.g. at 1024px: 300+260 sides,
            32px gaps → 320px centre; at 1440px: 380+320 → 564px centre). */}
-        <div className="grid gap-6 lg:gap-8 xl:gap-12 2xl:gap-20 items-start lg:grid-cols-[minmax(280px,300px)_minmax(0,1fr)_minmax(240px,260px)] xl:grid-cols-[minmax(320px,380px)_minmax(0,1fr)_minmax(280px,320px)] 2xl:grid-cols-[minmax(340px,400px)_minmax(0,1fr)_minmax(300px,340px)]">
+        {/* The grid spans the full between-rails band and vertically centres each
+           column inside it (items-center). Panels stay content-sized (max-h caps +
+           inner scroll) at their subtle natural height. Because the band height is
+           constant AND each column holds a constant height of its own (EFFECTS
+           reserves its two-slider adjustments height, so it doesn't resize as you
+           cycle effects), the centred block never re-centres: no column shifts its
+           Y when a neighbour's content changes or the centre swaps modes. */}
+        <div className="grid gap-6 lg:gap-8 xl:gap-12 2xl:gap-20 items-center lg:h-[var(--col-max-h,100dvh)] lg:grid-cols-[minmax(280px,300px)_minmax(0,1fr)_minmax(240px,260px)] xl:grid-cols-[minmax(320px,380px)_minmax(0,1fr)_minmax(280px,320px)] 2xl:grid-cols-[minmax(340px,400px)_minmax(0,1fr)_minmax(300px,340px)]">
           {originalFile && (
             <div className="hud-console">
               <div className="hud-console-left">
@@ -498,7 +509,10 @@ function App() {
              (title + the format telemetry), then the timeline beneath it. Flat,
              never raked: a tilt here would distort the title and the waveform. */}
           <section
-            className={`min-w-0 flex gap-6 max-h-[var(--col-max-h,100dvh)] min-h-0 ${
+            className={`min-w-0 flex gap-6 min-h-0 max-h-[var(--col-max-h,100dvh)] ${
+              // Content-sized like the side consoles (max-h caps + inner shrink),
+              // centred in the constant-height grid band so its Y stays put. Compact
+              // reflows the plate beside the waveform; stacked keeps them in a column.
               centerCompact ? 'flex-row items-stretch' : 'flex-col'
             }`}
           >

@@ -45,6 +45,14 @@ interface EffectControlsProps {
 // Listed effects - Slow + Reverb leads as the signature late-night mood. There is
 // no "Original" row: the untouched track ("none") is the *absence* of an active
 // effect, reached by powering off whichever effect is currently Active.
+// The adjustments area holds one or two sliders depending on the active effect
+// (8D Audio shows a single Rotation slider; Slow + Reverb and Bass Boost show
+// two). Reserving the two-slider height keeps the whole console the SAME height
+// across every effect, so it never resizes - which is what keeps its Y and its
+// raked tilt from shifting as you cycle effects. (Speed Up's optional Nightcore
+// slider grows past this on demand and simply scrolls; that's a deliberate act.)
+const ADJUSTMENTS_MIN_HEIGHT = '13rem';
+
 const EFFECT_DEFS: { mode: EffectMode; icon: LucideIcon; labelKey: string }[] = [
     { mode: "slow-reverb", icon: Waves, labelKey: "effects.slowReverb" },
     { mode: "speed-up", icon: Zap, labelKey: "effects.speedUp" },
@@ -350,6 +358,7 @@ export const EffectControls = memo(function EffectControls({ onChange, disabled,
                 <div className="hud-ruler" aria-hidden="true" />
                 <div
                     key={mode}
+                    style={{ minHeight: ADJUSTMENTS_MIN_HEIGHT }}
                     className="pt-1 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300"
                 >
                     {active ? (
