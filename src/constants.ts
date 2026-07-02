@@ -358,11 +358,15 @@ export const AUDIO_EFFECTS = {
 // ============================================================================
 
 export const NIGHTCORE = {
-    /** Public URLs for the one-shot samples (served from /public/sounds). */
+    /**
+     * Public URLs for the one-shot samples (served from /public/sounds). Built from
+     * BASE_URL so they resolve under Vite's production base ('/reverie/') instead of
+     * the site root - a hardcoded '/sounds/...' 404s on GitHub Pages.
+     */
     SAMPLES: {
-        kick: "/sounds/nightcore-kick.wav",
-        clap: "/sounds/nightcore-clap.wav",
-        finish: "/sounds/nightcore-finish.wav",
+        kick: `${import.meta.env.BASE_URL}sounds/nightcore-kick.wav`,
+        clap: `${import.meta.env.BASE_URL}sounds/nightcore-clap.wav`,
+        finish: `${import.meta.env.BASE_URL}sounds/nightcore-finish.wav`,
     },
     /**
      * Per-role level trims so the pre-rendered samples sit together (the crash matches
