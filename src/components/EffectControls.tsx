@@ -370,6 +370,7 @@ export const EffectControls = memo(function EffectControls({ onChange, disabled,
                                 <div className="space-y-4 border-t border-[rgba(var(--color-border),0.4)] pt-5">
                                     <BeatToggle
                                         label={t("effects.nightcoreBeats")}
+                                        badge={t("effects.betaBadge")}
                                         description={t("effects.nightcoreBeatsHint")}
                                         pressed={enableBeats}
                                         onToggle={() => setEnableBeats((v) => !v)}

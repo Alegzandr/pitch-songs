@@ -3,6 +3,8 @@ import { cn } from "@/lib/utils";
 
 interface BeatToggleProps {
     label: string;
+    /** Optional status chip rendered after the label (e.g. "Beta"). */
+    badge?: string;
     /** Optional supporting line under the label (e.g. the detected tempo). */
     description?: string;
     /** Extra classes on the description line - e.g. to hide it at short heights. */
@@ -19,6 +21,7 @@ interface BeatToggleProps {
  */
 export const BeatToggle = memo(function BeatToggle({
     label,
+    badge,
     description,
     descriptionClassName,
     pressed,
@@ -41,8 +44,15 @@ export const BeatToggle = memo(function BeatToggle({
             )}
         >
             <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-[rgb(var(--color-text))]">
-                    {label}
+                <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-[rgb(var(--color-text))]">
+                        {label}
+                    </span>
+                    {badge && (
+                        <span className="shrink-0 rounded-full border border-[rgba(var(--color-accent),0.4)] bg-[rgba(var(--color-accent),0.1)] px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-[rgb(var(--color-accent-text))]">
+                            {badge}
+                        </span>
+                    )}
                 </span>
                 {description && (
                     <span
