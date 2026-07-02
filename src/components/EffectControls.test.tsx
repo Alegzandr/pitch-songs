@@ -14,7 +14,7 @@ describe('EffectControls', () => {
     render(<EffectControls onChange={onChange} />);
 
     // Slow + Reverb is the default active mode.
-    expect(onChange).toHaveBeenCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.7, reverbAmount: 0.5 });
+    expect(onChange).toHaveBeenCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.75, reverbAmount: 0.5 });
 
     await userEvent.click(screen.getByText('effects.speedUp'));
     expect(onChange).toHaveBeenLastCalledWith({
@@ -26,7 +26,7 @@ describe('EffectControls', () => {
     });
 
     await userEvent.click(screen.getByText('effects.slowReverb'));
-    expect(onChange).toHaveBeenLastCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.7, reverbAmount: 0.5 });
+    expect(onChange).toHaveBeenLastCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.75, reverbAmount: 0.5 });
 
     const slowSpeedSlider = screen.getByLabelText(/effects\.slowSpeed/);
     fireEvent.change(slowSpeedSlider, { target: { value: '0.6' } });
@@ -84,7 +84,7 @@ describe('EffectControls', () => {
 
     // Re-selecting brings the effect back with its preset.
     await userEvent.click(screen.getByText('effects.slowReverb'));
-    expect(onChange).toHaveBeenLastCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.7, reverbAmount: 0.5 });
+    expect(onChange).toHaveBeenLastCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.75, reverbAmount: 0.5 });
   });
 
   it('restores a slider to its default on a quick double-click', async () => {
@@ -102,7 +102,7 @@ describe('EffectControls', () => {
     now = 1100;
     fireEvent.click(slowSpeedSlider);
     nowSpy.mockRestore();
-    expect(onChange).toHaveBeenLastCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.7, reverbAmount: 0.5 });
+    expect(onChange).toHaveBeenLastCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.75, reverbAmount: 0.5 });
   });
 
   it('does not reset a slider when the two clicks are too far apart', async () => {
