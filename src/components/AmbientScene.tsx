@@ -1,5 +1,6 @@
 import { memo, useEffect, useReducer, useRef } from 'react';
 import { useMood } from '../contexts/MoodContext';
+import { SCENE_PHOTO_CLASS } from '../contexts/moods';
 import type { SceneId } from '../contexts/moods';
 import { animatedBackdropAllowed } from './scenes/motion';
 import { SceneAurora } from './scenes/SceneAurora';
@@ -14,16 +15,6 @@ import { SceneAurora } from './scenes/SceneAurora';
  * `background-position`, so the two animations never fight over one property.
  * `daybreak` has no photo, so it keeps pure CSS layers and gets no parallax/haze.
  */
-
-/** The CSS class painting each scene's photo (background-image lives in index.css). */
-const PHOTO_CLASS: Record<SceneId, string | null> = {
-  daybreak: null,
-  dusk: 'scene-photo-dusk',
-  tidal: 'scene-photo-tidal',
-  nocturne: 'scene-photo-nocturne',
-  aurora: 'scene-photo-nebula',
-  horizon: 'scene-photo-horizon',
-};
 
 /** The image URL each photo scene loads, matched to the `url()` in index.css.
  *  Built from BASE_URL so it warms the SAME cache entry the CSS requests (Vite
@@ -73,7 +64,7 @@ export const AmbientScene = memo(function AmbientScene() {
   const sceneRef = useRef<HTMLDivElement>(null);
   const scene = def.scene;
   const isPhoto = scene !== 'daybreak';
-  const photoClass = PHOTO_CLASS[scene];
+  const photoClass = SCENE_PHOTO_CLASS[scene];
   const photoSrc = PHOTO_SRC[scene];
 
   // The photo fades in only once its bitmap is decoded; until then we'd otherwise

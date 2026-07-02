@@ -40,9 +40,6 @@ export interface ExportStrategy {
   export(options: ExportOptions): Promise<ExportResult>;
 }
 
-/**
- * WAV Export Strategy
- */
 class WavExportStrategy implements ExportStrategy {
   async export({ buffer }: ExportOptions): Promise<ExportResult> {
     const blob = await audioProcessor.audioBufferToWav(buffer);
@@ -50,9 +47,6 @@ class WavExportStrategy implements ExportStrategy {
   }
 }
 
-/**
- * MP3 Export Strategy
- */
 class Mp3ExportStrategy implements ExportStrategy {
   async export({ buffer, estimatedBitrate }: ExportOptions): Promise<ExportResult> {
     const blob = await audioBufferToMp3(buffer, estimatedBitrate);
@@ -60,9 +54,6 @@ class Mp3ExportStrategy implements ExportStrategy {
   }
 }
 
-/**
- * AIFF Export Strategy
- */
 class AiffExportStrategy implements ExportStrategy {
   async export({ buffer }: ExportOptions): Promise<ExportResult> {
     const blob = await audioBufferToAiff(buffer);
@@ -71,7 +62,6 @@ class AiffExportStrategy implements ExportStrategy {
 }
 
 /**
- * FLAC Export Strategy
  * Encodes a true lossless FLAC stream via libFLAC (WASM). Falls back to WAV -
  * also lossless - if the encoder fails to load or run.
  */
@@ -88,10 +78,7 @@ class FlacExportStrategy implements ExportStrategy {
   }
 }
 
-/**
- * Abstract MediaRecorder-based Export Strategy
- * Provides fallback to MP3 if MediaRecorder format is not supported
- */
+/** MediaRecorder-based export with fallback to MP3 when the format is unsupported. */
 abstract class MediaRecorderExportStrategy implements ExportStrategy {
   protected abstract getFormatName(): string;
   protected abstract getPreferredExtension(): string;
@@ -125,9 +112,6 @@ abstract class MediaRecorderExportStrategy implements ExportStrategy {
   }
 }
 
-/**
- * WebM Export Strategy
- */
 class WebmExportStrategy extends MediaRecorderExportStrategy {
   protected getFormatName(): string {
     return 'webm';
@@ -138,9 +122,6 @@ class WebmExportStrategy extends MediaRecorderExportStrategy {
   }
 }
 
-/**
- * OGG Export Strategy
- */
 class OggExportStrategy extends MediaRecorderExportStrategy {
   protected getFormatName(): string {
     return 'ogg';
@@ -151,9 +132,6 @@ class OggExportStrategy extends MediaRecorderExportStrategy {
   }
 }
 
-/**
- * M4A/AAC Export Strategy
- */
 class M4aExportStrategy extends MediaRecorderExportStrategy {
   private sourceExtension: string;
 
@@ -172,10 +150,7 @@ class M4aExportStrategy extends MediaRecorderExportStrategy {
   }
 }
 
-/**
- * Default/Unknown Format Export Strategy
- * Falls back to MP3 for unknown formats
- */
+/** Unknown formats fall back to MP3. */
 class DefaultExportStrategy implements ExportStrategy {
   async export({ buffer, estimatedBitrate }: ExportOptions): Promise<ExportResult> {
     const blob = await audioBufferToMp3(buffer, estimatedBitrate);

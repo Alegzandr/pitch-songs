@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { MonitorSmartphone } from 'lucide-react';
 import { AmbientScene } from './AmbientScene';
+import { AuroraOrb } from './AuroraOrb';
 
 /**
  * Reverie is a wide cockpit - the effects rail, the holographic waveform and the
@@ -21,18 +22,12 @@ export function DesktopOnlyGate() {
             aria-hidden="true"
           />
 
-          <div className="relative mb-7 grid place-items-center" aria-hidden="true">
-            <span className="upload-echo absolute h-[4.75rem] w-[4.75rem] rounded-full border border-[rgba(var(--aurora-violet),0.4)]" />
-            <span
-              className="upload-echo absolute h-[6.25rem] w-[6.25rem] rounded-full border border-[rgba(var(--aurora-pink),0.3)]"
-              style={{ animationDelay: '1.6s' }}
-            />
-            <span className="relative h-16 w-16 rounded-full p-[2px] bg-[linear-gradient(135deg,rgb(var(--aurora-violet)),rgb(var(--aurora-pink))_55%,rgb(var(--aurora-cyan)))] shadow-[0_18px_44px_-22px_rgba(var(--aurora-pink),0.75)]">
-              <span className="flex h-full w-full items-center justify-center rounded-full bg-[rgb(var(--color-surface))]">
-                <MonitorSmartphone className="h-6 w-6 text-[rgb(var(--aurora-violet))]" />
-              </span>
-            </span>
-          </div>
+          <AuroraOrb
+            withEcho
+            echoWrapperClassName="mb-7"
+            className="relative shadow-[0_18px_44px_-22px_rgba(var(--aurora-pink),0.75)]"
+            icon={<MonitorSmartphone className="h-6 w-6 text-[rgb(var(--aurora-violet))]" />}
+          />
 
           <h1 className="font-display text-3xl sm:text-4xl font-light tracking-[0.02em] text-balance text-[rgb(var(--color-text))]">
             {t('gate.title')}

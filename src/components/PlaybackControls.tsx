@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Pause, Download, Repeat } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -5,6 +6,7 @@ import { TransportTimeline } from './TransportTimeline';
 import { VolumeControl } from './VolumeControl';
 import { SpectrumMeter } from './SpectrumMeter';
 import { HudDial } from './hud/HudDial';
+import type { PlaybackClock } from '../utils/playbackClock';
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -15,7 +17,8 @@ interface PlaybackControlsProps {
   onToggleRepeat: () => void;
   volume: number;
   onVolumeChange: (volume: number) => void;
-  currentTime: number;
+  /** Playhead position source (effective time) - read by the timeline outside React. */
+  clock: PlaybackClock;
   duration: number;
   onSeek: (time: number) => void;
   hasAudio: boolean;
@@ -27,9 +30,11 @@ interface PlaybackControlsProps {
 
 /**
  * Transport bar: play/pause leads on the left, the classic timeline fills the centre,
- * and volume + export sit compactly on the right.
+ * and volume + export sit compactly on the right. Memoised - the playhead ticks
+ * live in the clock store, so this bar only re-renders on real state changes
+ * (play/pause, volume, export).
  */
-export function PlaybackControls({
+export const PlaybackControls = memo(function PlaybackControls({
   isPlaying,
   onPlay,
   onStop,
@@ -38,7 +43,7 @@ export function PlaybackControls({
   onToggleRepeat,
   volume,
   onVolumeChange,
-  currentTime,
+  clock,
   duration,
   onSeek,
   hasAudio,
@@ -62,7 +67,7 @@ export function PlaybackControls({
       {/* Classic timeline - full-width first row on mobile, centre flex on desktop. */}
       <TransportTimeline
         className="order-1 w-full sm:order-2 sm:flex-1"
-        currentTime={currentTime}
+        clock={clock}
         duration={duration}
         onSeek={onSeek}
         disabled={disabled || !hasAudio}
@@ -165,4 +170,4 @@ export function PlaybackControls({
       </div>
     </div>
   );
-}
+});

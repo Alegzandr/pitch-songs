@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AUDIO_REACTIVITY } from '../constants';
 import type { LoudnessProfile } from '../utils/audioLoudness';
+import { prefersReducedMotion } from '../components/scenes/motion';
 
 interface UseAudioReactivityOptions {
   /** Returns the live playback analyser, or null while stopped. */
@@ -42,8 +43,7 @@ export function useAudioReactivity({ getAnalyser, getLoudness, isPlaying, target
 
   useEffect(() => {
     const root = target ?? document.documentElement;
-    const reduceMotion =
-      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduceMotion = prefersReducedMotion();
 
     const e = energy.current;
 

@@ -61,7 +61,7 @@ export function PerformanceHint() {
   return (
     <div
       role="status"
-      className={`fixed bottom-4 left-4 z-50 max-w-xs transition-all duration-500 ease-out ${
+      className={`fixed bottom-4 left-4 z-50 max-w-xs transition-[opacity,transform] duration-500 ease-out ${
         shown ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
       }`}
     >

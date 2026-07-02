@@ -1,16 +1,15 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Zap, Waves, Radio, Volume2, ShieldCheck } from 'lucide-react';
 import { FileUploader } from './components/FileUploader';
 import { FileDropOverlay } from './components/FileDropOverlay';
 import { EffectControls } from './components/EffectControls';
 import type { EffectSettings } from './components/EffectControls';
 import { PlaybackControls } from './components/PlaybackControls';
-import { ProgressBar } from './components/ProgressBar';
 import { SettingsMenu } from './components/SettingsMenu';
 import { FullscreenButton } from './components/FullscreenButton';
 import { AmbientScene } from './components/AmbientScene';
 import { MoodTransition } from './components/MoodTransition';
+import { prefersReducedMotion } from './components/scenes/motion';
 import { DesktopOnlyGate } from './components/DesktopOnlyGate';
 import { useIsViewportTooNarrow } from './hooks/useViewportGate';
 import { WaveformTimeline } from './components/WaveformTimeline';
@@ -19,10 +18,12 @@ import { MarqueeText } from './components/MarqueeText';
 import { OverlayScrollbar } from './components/OverlayScrollbar';
 import { MetaReadout } from './components/MetaReadout';
 import { Logo } from './components/Logo';
+import { WelcomeScreen } from './components/WelcomeScreen';
+import { SHELL_CLASS } from './components/shell';
 import { Card } from './components/ui/card';
-import { Badge } from './components/ui/badge';
 import { Tooltip, TooltipTrigger, TooltipContent } from './components/ui/tooltip';
 import { useAudioProcessor } from './hooks/useAudioProcessor';
+import type { AudioMetadata } from './hooks/useAudioFile';
 import { useAudioReactivity } from './hooks/useAudioReactivity';
 import { useEq } from './contexts/EqContext';
 import { EFFECT_EXPORT_LABELS, EFFECT_DEFAULTS } from './constants';
@@ -38,6 +39,42 @@ const toOptions = (s: EffectSettings): AudioProcessingOptions => ({
   bassUnderwater: s.bassUnderwater,
 });
 
+// Centred content column shared by the workspace rails (header, main, transport):
+// same max width and gutters so the three planes stay aligned.
+const SHELL_WIDTH_CLASS = 'mx-auto w-full max-w-[1880px] px-6 sm:px-10';
+
+/**
+ * Track metadata rows for the identity plate. Memoised so the 5 objects + t()
+ * calls aren't rebuilt on every render, including the ~60fps playback frames.
+ */
+function useTrackMetaItems(originalFile: File | null, metadata: AudioMetadata | null) {
+  const { t } = useTranslation();
+  return useMemo(
+    () =>
+      originalFile
+        ? [
+            // Format (the extension) lives here as a readout, not in the scrolling
+            // title - the title carries the name alone.
+            (() => {
+              const ext = originalFile.name.match(/\.([^/.]+)$/)?.[1];
+              return ext ? { label: t('track.format'), value: ext.toUpperCase() } : null;
+            })(),
+            { label: t('track.size'), value: `${(originalFile.size / 1024 / 1024).toFixed(1)} MB` },
+            metadata?.bitrate ? { label: t('track.bitrate'), value: `${metadata.bitrate} kbps` } : null,
+            metadata?.sampleRate ? { label: t('track.sampleRate'), value: `${(metadata.sampleRate / 1000).toFixed(1)} kHz` } : null,
+            metadata?.channels
+              ? {
+                  label: t('track.channels'),
+                  value: metadata.channels === 1 ? t('track.mono') : metadata.channels === 2 ? t('track.stereo') : `${metadata.channels}ch`,
+                }
+              : null,
+            metadata?.bitDepth ? { label: t('track.bitDepth'), value: `${metadata.bitDepth}-bit` } : null,
+          ].filter((item): item is { label: string; value: string } => item !== null)
+        : [],
+    [originalFile, metadata, t]
+  );
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const {
@@ -45,7 +82,7 @@ function App() {
     originalFile,
     originalBuffer,
     processedBuffer,
-    playbackTime,
+    playbackClock,
     duration,
     volume,
     repeat,
@@ -137,21 +174,15 @@ function App() {
     [setEffects]
   );
 
-  // playbackTime changes ~60×/s during playback. Reading it through a ref keeps
-  // handlePlay's identity stable across those frames, so the dependent
-  // handleTogglePlay and the spacebar keydown effect don't re-subscribe every frame.
-  const playbackTimeRef = useRef(playbackTime);
-  useEffect(() => {
-    playbackTimeRef.current = playbackTime;
-  }, [playbackTime]);
-
   const handlePlay = useCallback(() => {
     // When the track has reached the end, pressing play replays from the start.
-    const time = playbackTimeRef.current;
+    // The position lives in the playback clock (an external store), so reading
+    // it here costs nothing per frame and keeps handlePlay's identity stable.
+    const time = playbackClock.get();
     const startAt = duration > 0 && time >= duration ? 0 : time;
     if (originalBuffer) playAudio(originalBuffer, startAt);
     else if (processedBuffer) playAudio(processedBuffer, startAt);
-  }, [playAudio, originalBuffer, processedBuffer, duration]);
+  }, [playAudio, playbackClock, originalBuffer, processedBuffer, duration]);
 
   const hasPlayableAudio = !!(originalBuffer || processedBuffer);
 
@@ -192,9 +223,17 @@ function App() {
   // Speed changes the listening length: a 3:00 clip at 0.5x lasts 6:00. We track time
   // internally in source-buffer time, but the transport speaks in effective (output)
   // time so the duration and clock stretch/compress with the rate, like a real player.
+  // The position itself flows through a derived clock (an external store view), so
+  // the 60fps tick never re-renders App - consumers subscribe to what they display.
   const playbackRate = effectSettings.speedMultiplier || 1;
   const effectiveDuration = playbackRate > 0 ? duration / playbackRate : duration;
-  const effectiveTime = playbackRate > 0 ? playbackTime / playbackRate : playbackTime;
+  const effectiveClock = useMemo(
+    () => ({
+      get: () => (playbackRate > 0 ? playbackClock.get() / playbackRate : playbackClock.get()),
+      subscribe: playbackClock.subscribe,
+    }),
+    [playbackClock, playbackRate]
+  );
 
   const handleSeek = useCallback(
     (time: number) => {
@@ -227,15 +266,12 @@ function App() {
   // and never lands under prefers-reduced-motion; it is removed after the
   // choreography so the resting cockpit carries no animation styles.
   const shellRef = useRef<HTMLDivElement | null>(null);
-  const welcomeShellRef = useRef<HTMLDivElement | null>(null);
   const hadSessionRef = useRef(false);
   useEffect(() => {
     const had = hadSessionRef.current;
     hadSessionRef.current = hasSession;
     if (had || !hasSession) return;
-    const reduceMotion =
-      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduceMotion) return;
+    if (prefersReducedMotion()) return;
     const shell = shellRef.current;
     if (!shell) return;
     shell.classList.add('cockpit-boot');
@@ -252,33 +288,9 @@ function App() {
     </div>
   ) : null;
 
-  // Track metadata rows. Hoisted above the early returns (so the hook order stays
-  // stable) and memoised so the 5 objects + t() calls aren't rebuilt on every
-  // render, including the ~60fps playback frames.
-  const metaItems = useMemo(
-    () =>
-      originalFile
-        ? [
-            // Format (the extension) lives here as a readout, not in the scrolling
-            // title - the title carries the name alone.
-            (() => {
-              const ext = originalFile.name.match(/\.([^/.]+)$/)?.[1];
-              return ext ? { label: t('track.format'), value: ext.toUpperCase() } : null;
-            })(),
-            { label: t('track.size'), value: `${(originalFile.size / 1024 / 1024).toFixed(1)} MB` },
-            metadata?.bitrate ? { label: t('track.bitrate'), value: `${metadata.bitrate} kbps` } : null,
-            metadata?.sampleRate ? { label: t('track.sampleRate'), value: `${(metadata.sampleRate / 1000).toFixed(1)} kHz` } : null,
-            metadata?.channels
-              ? {
-                  label: t('track.channels'),
-                  value: metadata.channels === 1 ? t('track.mono') : metadata.channels === 2 ? t('track.stereo') : `${metadata.channels}ch`,
-                }
-              : null,
-            metadata?.bitDepth ? { label: t('track.bitDepth'), value: `${metadata.bitDepth}-bit` } : null,
-          ].filter((item): item is { label: string; value: string } => item !== null)
-        : [],
-    [originalFile, metadata, t]
-  );
+  // Track metadata rows. Hoisted above the early returns so the hook order
+  // stays stable across renders.
+  const metaItems = useTrackMetaItems(originalFile, metadata);
 
   // ------------------------------------------------------------ Desktop gate
   if (viewportTooNarrow) {
@@ -288,84 +300,26 @@ function App() {
   // ---------------------------------------------------------------- Welcome
   if (!hasSession) {
     return (
-      <div ref={welcomeShellRef} className="overlay-scroll h-[100dvh] overflow-y-auto overflow-x-hidden flex flex-col">
-        <OverlayScrollbar target={welcomeShellRef} insetTop={24} insetBottom={24} />
-        <AmbientScene />
-        <MoodTransition />
-        <div className="flex items-center justify-end gap-2 px-4 sm:px-6 py-4">
-          <SettingsMenu />
-        </div>
-
-        <main className="flex-1 flex items-center justify-center px-4 sm:px-6 pb-16">
-          <div className="aurora-stage relative w-full max-w-2xl flex flex-col items-center text-center">
-            <Logo className="w-16 h-16 rounded-[18px] shadow-[0_18px_50px_-24px_rgba(var(--aurora-pink),0.7)] mb-7" />
-            <h1 className="font-display lowercase text-5xl sm:text-6xl font-light tracking-[0.04em] text-[rgb(var(--color-text))]">
-              {t('app.title')}
-            </h1>
-            <p className="font-display mt-4 text-lg sm:text-xl font-light text-balance text-[rgba(var(--color-text),0.88)] max-w-md">
-              {t('app.subtitle')}
-            </p>
-
-            <div className="w-full mt-10 space-y-4">
-              {errorBanner}
-              {state.isLoading ? (
-                <ProgressBar
-                  progress={state.progress}
-                  isProcessing={state.isLoading}
-                  message={t('upload.loading')}
-                />
-              ) : (
-                <FileUploader
-                  key={uploadRevision}
-                  onFileSelect={handleFileSelect}
-                  isLoading={state.isLoading}
-                  hasFile={false}
-                />
-              )}
-            </div>
-
-            <ul className="mt-10 flex flex-wrap items-center justify-center gap-3">
-              {[
-                { icon: Zap, label: t('effects.speedUp') },
-                { icon: Waves, label: t('effects.slowReverb') },
-                { icon: Radio, label: t('effects.8dAudio') },
-                { icon: Volume2, label: t('effects.bassBoost') },
-              ].map(({ icon: Icon, label }) => (
-                <li key={label}>
-                  <Badge variant="hud" className="gap-2">
-                    <Icon className="w-4 h-4 text-[rgb(var(--color-accent-text))]" aria-hidden="true" />
-                    {label}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-
-            {/* The privacy promise is a design principle, not a footnote - the
-               accent-lit shield and near-full ink keep it legible over the scene. */}
-            <p className="mt-8 flex items-center gap-2 text-xs font-medium text-[rgba(var(--color-text),0.82)]">
-              <ShieldCheck className="w-4 h-4 text-[rgb(var(--color-accent-text))]" aria-hidden="true" />
-              {t('features.private.desc')}
-            </p>
-          </div>
-        </main>
-
-        <footer className="pb-8 text-center">
-          <p className="text-xs text-[rgba(var(--color-text),0.72)]">{t('footer.built')}</p>
-        </footer>
-      </div>
+      <WelcomeScreen
+        onFileSelect={handleFileSelect}
+        isLoading={state.isLoading}
+        progress={state.progress}
+        uploadRevision={uploadRevision}
+        errorBanner={errorBanner}
+      />
     );
   }
 
   // -------------------------------------------------------------- Workspace
   return (
-    <div ref={shellRef} className="overlay-scroll h-[100dvh] overflow-y-auto overflow-x-hidden flex flex-col">
+    <div ref={shellRef} className={SHELL_CLASS}>
       <OverlayScrollbar target={shellRef} />
       <AmbientScene />
       <MoodTransition />
       <FileDropOverlay onFileSelect={handleFileSelect} disabled={state.isExporting} />
       <header className="hud-rail hud-rail-top sticky top-0 z-40 bg-[rgba(var(--color-surface),0.78)] backdrop-blur-xl border-b border-[rgba(var(--color-border),0.5)]">
         <div className="hud-bow">
-        <div className="hud-bow-inner mx-auto w-full max-w-[1880px] px-6 sm:px-10 h-16 flex items-center justify-between gap-4">
+        <div className={`hud-bow-inner ${SHELL_WIDTH_CLASS} h-16 flex items-center justify-between gap-4`}>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -396,7 +350,7 @@ function App() {
       </header>
 
       {/* Biased upward (bottom padding > top) so content sits in the upper-middle. */}
-      <main className="flex-1 mx-auto w-full max-w-[1880px] px-6 sm:px-10 pt-6 sm:pt-8 pb-32 sm:pb-40 flex flex-col gap-8 sm:gap-10 lg:justify-center">
+      <main className={`flex-1 ${SHELL_WIDTH_CLASS} pt-6 sm:pt-8 pb-32 sm:pb-40 flex flex-col gap-8 sm:gap-10 lg:justify-center`}>
         {errorBanner}
 
         {/* Cockpit: raked FX console | flat waveform centrepiece | raked mood
@@ -463,7 +417,7 @@ function App() {
               <WaveformTimeline
                 buffer={stageBuffer}
                 duration={effectiveDuration}
-                currentTime={effectiveTime}
+                clock={effectiveClock}
                 isPlaying={state.isPlaying}
                 onSeek={handleSeek}
                 options={effectOptions}
@@ -483,7 +437,7 @@ function App() {
       {(processedBuffer || originalFile) && (
         <div className="hud-rail hud-rail-bottom sticky bottom-0 z-30 bg-[rgba(var(--color-surface),0.85)] backdrop-blur-xl border-t border-[rgba(var(--color-border),0.5)] shadow-[0_-14px_40px_-28px_rgba(var(--color-accent),0.5)]">
           <div className="hud-bow">
-          <div className="hud-bow-inner mx-auto w-full max-w-[1880px] px-6 sm:px-10 py-3">
+          <div className={`hud-bow-inner ${SHELL_WIDTH_CLASS} py-3`}>
             <PlaybackControls
               isPlaying={state.isPlaying}
               onPlay={handlePlay}
@@ -493,7 +447,7 @@ function App() {
               onToggleRepeat={toggleRepeat}
               volume={volume}
               onVolumeChange={updateVolume}
-              currentTime={effectiveTime}
+              clock={effectiveClock}
               duration={effectiveDuration}
               onSeek={handleSeek}
               hasAudio={hasPlayableAudio}

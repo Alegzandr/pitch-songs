@@ -92,19 +92,6 @@ export async function encodeWithMediaRecorder(
 }
 
 /**
- * Check which formats are supported by the browser
- */
-export function getSupportedMimeTypes(): string[] {
-  return [...MEDIA_RECORDER_FORMATS.POSSIBLE_MIME_TYPES].filter(type => {
-    try {
-      return MediaRecorder.isTypeSupported(type);
-    } catch {
-      return false;
-    }
-  });
-}
-
-/**
  * Get the best supported MIME type for a given format
  */
 export function getMimeTypeForFormat(format: string): string | null {

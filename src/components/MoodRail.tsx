@@ -83,10 +83,10 @@ function MoodGallery() {
         <div className="max-h-[64vh] overflow-y-auto pr-1 -mr-1">
           <div className="grid grid-cols-2 gap-2.5">
             {MOOD_ORDER.map((id) => {
-              const tdef = MOODS[id];
-              const Icon = tdef.icon;
+              const moodDef = MOODS[id];
+              const Icon = moodDef.icon;
               const active = mood === id;
-              const label = t(`settings.mood.${tdef.labelKey}`);
+              const label = t(`settings.mood.${moodDef.labelKey}`);
               return (
                 <button
                   key={id}
@@ -106,7 +106,7 @@ function MoodGallery() {
                   )}
                 >
                   {/* Live preview swatch - the mood's own scene/backdrop colours */}
-                  <span className="block h-14 w-full" style={{ background: tdef.preview }} aria-hidden="true" />
+                  <span className="block h-14 w-full" style={{ background: moodDef.preview }} aria-hidden="true" />
                   <span className="flex items-center justify-between gap-2 px-3 py-2 bg-[rgba(var(--color-surface),0.6)]">
                     <span className="flex items-center gap-2 min-w-0">
                       <Icon
@@ -163,8 +163,7 @@ export const MoodRail = memo(function MoodRail() {
             <span className="hud-readout block">{t('studio.recentMoods')}</span>
             <ul className="space-y-1.5">
               {returnableMoods.map(({ id, label }) => {
-                const tdef = MOODS[id];
-                const Icon = tdef.icon;
+                const Icon = MOODS[id].icon;
                 return (
                   <li key={id}>
                     <button

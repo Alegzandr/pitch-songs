@@ -54,6 +54,7 @@ export function useAudioProcessor() {
 
   const {
     state: playbackState,
+    playbackClock,
     playAudio,
     stopAudio,
     seekTo,
@@ -74,7 +75,7 @@ export function useAudioProcessor() {
 
   const {
     state: exportState,
-    exportProcessedAudio: baseExport,
+    exportProcessedAudio: runExport,
     resetExport,
   } = useAudioExport({
     getBuffer: () => renderedRef.current || processedBuffer || audioProcessor.getAudioBuffer(),
@@ -129,11 +130,11 @@ export function useAudioProcessor() {
     // `return await` keeps it captured for the whole encode, the next export
     // re-renders anyway. The error still propagates after the finally.
     try {
-      return await baseExport(arg);
+      return await runExport(arg);
     } finally {
       renderedRef.current = null;
     }
-  }, [baseExport]);
+  }, [runExport]);
 
   const reset = useCallback(() => {
     stopAudio();
@@ -157,7 +158,8 @@ export function useAudioProcessor() {
     originalFile,
     originalBuffer,
     processedBuffer,
-    playbackTime: playbackState.playbackTime,
+    // Playhead position store - read/subscribe without per-frame re-renders.
+    playbackClock,
     duration: playbackState.duration,
     volume: playbackState.volume,
     repeat: playbackState.repeat,

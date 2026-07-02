@@ -94,6 +94,17 @@ export const MOODS: Record<MoodId, MoodDef> = {
 
 export const MOOD_ORDER: MoodId[] = ['light', 'dark', 'tidal', 'nocturne', 'aurora', 'horizon'];
 
+/** The CSS class painting each scene's photo backdrop (background-image lives in
+ *  index.css). `daybreak` has no photo - it is drawn with pure CSS layers. */
+export const SCENE_PHOTO_CLASS: Record<SceneId, string | null> = {
+  daybreak: null,
+  dusk: 'scene-photo-dusk',
+  tidal: 'scene-photo-tidal',
+  nocturne: 'scene-photo-nocturne',
+  aurora: 'scene-photo-nebula',
+  horizon: 'scene-photo-horizon',
+};
+
 export const DEFAULT_MOOD: MoodId = 'aurora';
 
 export function isMoodId(value: unknown): value is MoodId {

@@ -1288,7 +1288,9 @@
        whole decode and reads as a black blink on load / mood switch. */
     opacity: 0;
     transition: transform 500ms ease-out, opacity 600ms ease-out;
-    will-change: transform, background-position, opacity;
+    /* background-position is deliberately NOT listed: it isn't compositable,
+       so hinting it only pins an extra full-screen layer for no benefit. */
+    will-change: transform, opacity;
   }
 
   /* Decoded and paint-ready: the world materialises. */
@@ -1320,7 +1322,8 @@
     filter: blur(44px);
     /* transform = parallax (slow), opacity = audio swell (snappy). */
     transition: transform 600ms ease-out, opacity 110ms linear;
-    will-change: transform, background-position, opacity;
+    /* background-position is not compositable - hinting it is a free layer tax. */
+    will-change: transform, opacity;
   }
 
   /* The colour atmosphere brightens with the music - localised blobs, not a
@@ -1768,30 +1771,41 @@
     opacity: 0.6;
   }
 
-  /* ── Graduated tick ruler - a thin instrument scale, faded at both ends. */
+  /* ── Graduated tick ruler - a thin instrument scale, faded at both ends.
+     The tick tape lives on a ::before one period (9px) wider than the ruler, so
+     the immersive scroll can be a composited translate instead of repainting
+     background-position every frame. */
   .hud-ruler {
+    position: relative;
     height: 7px;
     opacity: 0.5;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  }
+
+  .hud-ruler::before {
+    content: '';
+    position: absolute;
+    inset: 0 -9px 0 0;
     background: repeating-linear-gradient(
       to right,
       rgba(var(--hud-line), 0.7) 0 1px,
       transparent 1px 9px
     );
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
-    mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
   }
 
   /* The ruler tape slowly scrolls in immersive mode - ambient telemetry that's
      always alive (one tick period = 9px, so the loop is seamless). Desktop +
      no-reduce only; the tape is dead-still otherwise. */
   @media (prefers-reduced-motion: no-preference) and (min-width: 768px) and (pointer: fine) {
-    .immersive .hud-ruler {
+    .immersive .hud-ruler::before {
       animation: hud-ruler-scroll 0.6s linear infinite;
     }
   }
 
   @keyframes hud-ruler-scroll {
-    to { background-position-x: -9px; }
+    to { transform: translate3d(-9px, 0, 0); }
   }
 
   /* ── Segmented VU-meter (LevelMeter) ────────────────────────────────────
@@ -1833,17 +1847,22 @@
       rgba(var(--color-ambient), 0.7),
       rgba(var(--color-accent), 0.9)
     );
+    /* The wave scales a fixed full-travel box from its base (composited)
+       instead of animating `height`, which would relayout the whole flex row
+       on every frame × every segment. 0.227 = the old 20% floor ÷ 88%. */
+    height: 88%;
+    transform-origin: bottom;
     animation: level-wave 1.8s ease-in-out infinite;
     animation-delay: calc(var(--i) * -0.09s);
   }
 
   @keyframes level-wave {
-    0%, 100% { height: 20%; opacity: 0.4; }
-    50% { height: 88%; opacity: 1; }
+    0%, 100% { transform: scaleY(0.227); opacity: 0.4; }
+    50% { transform: scaleY(1); opacity: 1; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .immersive .hud-ruler { animation: none; }
+    .immersive .hud-ruler::before { animation: none; }
     .level-meter-scroll .level-seg {
       animation: none;
       height: 40%;

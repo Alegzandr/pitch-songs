@@ -36,7 +36,6 @@ describe('useAudioExport', () => {
         originalFile: new File(['data'], 'demo.mp3', { type: 'audio/mp3' }),
         metadata: { originalFormat: 'mp3' } as any,
         getBufferDuration: (buffer) => buffer?.duration ?? 0,
-        effectLabel: overrides.effectLabel ?? 'FX',
         ...overrides,
       })
     );
@@ -45,7 +44,7 @@ describe('useAudioExport', () => {
     const { result } = renderExportHook();
 
     await act(async () => {
-      await result.current.exportProcessedAudio();
+      await result.current.exportProcessedAudio({ effectLabel: 'FX' });
     });
 
     expect(mockGetExportStrategy).toHaveBeenCalledWith('mp3');
@@ -63,7 +62,7 @@ describe('useAudioExport', () => {
     const { result } = renderExportHook();
 
     await act(async () => {
-      await result.current.exportProcessedAudio('custom.wav');
+      await result.current.exportProcessedAudio({ filename: 'custom.wav', effectLabel: 'FX' });
     });
 
     expect(mockDownload).toHaveBeenCalledWith(mockBlob, 'custom FX ver. by Reverie.mp3');
@@ -102,7 +101,7 @@ describe('useAudioExport', () => {
     const { result } = renderExportHook();
 
     await act(async () => {
-      await result.current.exportProcessedAudio('demo by Reverie.mp3');
+      await result.current.exportProcessedAudio({ filename: 'demo by Reverie.mp3', effectLabel: 'FX' });
     });
 
     expect(mockDownload).toHaveBeenCalledWith(mockBlob, 'demo FX ver. by Reverie.mp3');

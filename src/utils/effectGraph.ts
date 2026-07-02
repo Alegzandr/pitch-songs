@@ -1,5 +1,6 @@
-import { AUDIO_EFFECTS, AUDIO_SIGNAL, underwaterCutoffHz, reverbMakeupGain, bassBoostTrimGain } from '../constants';
-import { createDecayingNoiseImpulse } from './impulse';
+import { AUDIO_EFFECTS, AUDIO_SIGNAL } from '../constants';
+import { underwaterCutoffHz, reverbMakeupGain, bassBoostTrimGain } from './dsp';
+import { getDecayingNoiseImpulse, getEightDBedImpulse } from './impulse';
 import type { AudioProcessingOptions } from './audioProcessor';
 
 /**
@@ -43,39 +44,23 @@ export interface EffectChain {
   eightDConvolver: ConvolverNode;
   eightDBed: GainNode;
   out: GainNode;
+  /**
+   * Live routing flags: each convolver's INPUT is attached only while its effect
+   * is audible, so no convolution runs during plain playback (the 3 s reverb IR
+   * is by far the graph's most expensive node). Detaching only the input is
+   * click-free by construction: the convolver keeps ringing out its stored tail
+   * through the (ramped-down) wet gain, and on re-attach the wet signal builds
+   * back up through the IR - the output never jumps.
+   */
+  reverbRouted: boolean;
+  bedRouted: boolean;
 }
 
 /** Smooth-transition time constant (~150 ms perceived), DAW-like, no zipper noise. */
 const RAMP_TIME_CONSTANT = 0.04;
 /** Fixed reverb tail length in seconds; wetness is controlled by the wet gain. */
 const REVERB_SECONDS = 3;
-/** Short tail for the constant 8D ambience bed - tight enough to sit under the music. */
-const EIGHT_D_BED_SECONDS = 0.5;
-
-let cachedImpulse: { sampleRate: number; buffer: AudioBuffer } | null = null;
-let cachedBedImpulse: { sampleRate: number; buffer: AudioBuffer } | null = null;
-
-function getReverbImpulse(ctx: BaseAudioContext): AudioBuffer {
-  if (cachedImpulse && cachedImpulse.sampleRate === ctx.sampleRate) {
-    return cachedImpulse.buffer;
-  }
-  const buffer = createDecayingNoiseImpulse(ctx, REVERB_SECONDS, 0.9);
-  cachedImpulse = { sampleRate: ctx.sampleRate, buffer };
-  return buffer;
-}
-
-/**
- * Short, slightly stereo-widened impulse for the 8D ambience bed: the asymmetric
- * channel gain gives the constant reverb width so it reads as spatial, not mono.
- */
-function getEightDBedImpulse(ctx: BaseAudioContext): AudioBuffer {
-  if (cachedBedImpulse && cachedBedImpulse.sampleRate === ctx.sampleRate) {
-    return cachedBedImpulse.buffer;
-  }
-  const buffer = createDecayingNoiseImpulse(ctx, EIGHT_D_BED_SECONDS, 0.1, [1.0, 0.9]);
-  cachedBedImpulse = { sampleRate: ctx.sampleRate, buffer };
-  return buffer;
-}
+const REVERB_DECAY_SECONDS = 0.9;
 
 export function createEffectChain(ctx: AudioContext): EffectChain {
   const highpass = ctx.createBiquadFilter();
@@ -108,7 +93,7 @@ export function createEffectChain(ctx: AudioContext): EffectChain {
   const dryGain = ctx.createGain();
   const wetGain = ctx.createGain();
   const convolver = ctx.createConvolver();
-  convolver.buffer = getReverbImpulse(ctx);
+  convolver.buffer = getDecayingNoiseImpulse(ctx, REVERB_SECONDS, REVERB_DECAY_SECONDS);
   const mix = ctx.createGain();
 
   // Listening EQ: one biquad per band, chained in series. Starts flat (0 dB) so
@@ -137,7 +122,8 @@ export function createEffectChain(ctx: AudioContext): EffectChain {
   lowshelf.connect(peak);
   peak.connect(underwaterLowpass);
   underwaterLowpass.connect(dryGain);
-  underwaterLowpass.connect(convolver);
+  // The convolver's input is NOT wired here: applyEffectOptions attaches it on
+  // demand (reverbRouted), so a clean playback never pays for convolution.
   convolver.connect(wetGain);
   underwaterLfo.connect(underwaterDepth);
   underwaterDepth.connect(underwaterLowpass.frequency);
@@ -154,7 +140,8 @@ export function createEffectChain(ctx: AudioContext): EffectChain {
 
   // 8D ambience bed: a constant, un-panned reverb tapped from the pre-pan mix so
   // both ears keep a quiet presence while the dry signal orbits via the panner.
-  mix.connect(eightDConvolver);
+  // Like the reverb convolver, its input (mix -> eightDConvolver) is attached on
+  // demand by applyEffectOptions (bedRouted).
   eightDConvolver.connect(eightDBed);
   eightDBed.connect(out);
 
@@ -162,7 +149,7 @@ export function createEffectChain(ctx: AudioContext): EffectChain {
   panDepth.connect(panner.pan);
   osc.start();
 
-  return { input: highpass, output: out, highpass, lowshelf, peak, underwaterLowpass, underwaterLfo, underwaterDepth, dryGain, wetGain, convolver, mix, eq, panner, panDepth, osc, eightDConvolver, eightDBed, out };
+  return { input: highpass, output: out, highpass, lowshelf, peak, underwaterLowpass, underwaterLfo, underwaterDepth, dryGain, wetGain, convolver, mix, eq, panner, panDepth, osc, eightDConvolver, eightDBed, out, reverbRouted: false, bedRouted: false };
 }
 
 function setParam(param: AudioParam, value: number, ctx: AudioContext, ramp: boolean) {
@@ -186,6 +173,37 @@ export function applyEffectOptions(
 ) {
   const reverb = Math.max(0, Math.min(1, options.reverbAmount || 0));
   const bass = options.bassBoost ? Math.max(0, Math.min(1, options.bassBoostIntensity ?? 0)) : 0;
+  const eightD = !!options.audio8D;
+
+  // Attach/detach the convolver inputs so convolution only ever runs while its
+  // effect is audible. Attach happens before the gain ramps up (the wet signal
+  // builds through the IR); detach lets the stored tail ring out through the
+  // ramped-down wet gain - both directions are click-free.
+  const reverbAudible = reverb > 0;
+  if (reverbAudible !== chain.reverbRouted) {
+    chain.reverbRouted = reverbAudible;
+    if (reverbAudible) {
+      chain.underwaterLowpass.connect(chain.convolver);
+    } else {
+      try {
+        chain.underwaterLowpass.disconnect(chain.convolver);
+      } catch {
+        // already detached
+      }
+    }
+  }
+  if (eightD !== chain.bedRouted) {
+    chain.bedRouted = eightD;
+    if (eightD) {
+      chain.mix.connect(chain.eightDConvolver);
+    } else {
+      try {
+        chain.mix.disconnect(chain.eightDConvolver);
+      } catch {
+        // already detached
+      }
+    }
+  }
   // Reverb makeup restores the loudness lost to the dry/wet crossfade; the bass
   // trim claws back the headroom the low shelf adds. Both fold into the dry/wet
   // gains (the bass filters sit before the split, so scaling dry and wet equally
@@ -205,7 +223,6 @@ export function applyEffectOptions(
   setParam(chain.underwaterLowpass.frequency, cutoff, ctx, ramp);
   setParam(chain.underwaterDepth.gain, cutoff * AUDIO_EFFECTS.BASS_BOOST.UNDERWATER_LFO_DEPTH_RATIO * underwater, ctx, ramp);
 
-  const eightD = !!options.audio8D;
   setParam(chain.panDepth.gain, eightD ? 1 : 0, ctx, ramp);
   setParam(chain.panner.pan, 0, ctx, ramp);
   // Constant ambience bed keeps both ears filled while the dry signal orbits.

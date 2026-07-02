@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AudioProcessor } from './audioProcessor';
+import { createDecayingNoiseImpulse } from './impulse';
 
 const OriginalAudioContext = globalThis.AudioContext;
 const OriginalOfflineAudioContext = globalThis.OfflineAudioContext;
@@ -212,10 +213,10 @@ describe('audioProcessor utils', () => {
     expect(offline.panner?.pan.setValueAtTime).toHaveBeenCalled();
   });
 
-  it('creates reverb impulse with decay', async () => {
-    const processor: any = new AudioProcessor();
+  it('creates reverb impulse with decay', () => {
+    // Same tail/decay parameters the offline renderer passes for amount 0.5.
     const ctx = new InspectableOfflineAudioContext(2, 10, 48000);
-    const impulse = await processor.createReverbImpulse(ctx as any, 0.5);
+    const impulse = createDecayingNoiseImpulse(ctx as any, 1 + 0.5 * 2, 0.5);
 
     expect(impulse.length).toBe(48000 * (1 + 0.5 * 2));
     const data = impulse.getChannelData(0);

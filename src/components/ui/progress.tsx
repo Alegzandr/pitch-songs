@@ -25,7 +25,7 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
       {...props}
     >
       <div
-        className="h-full bg-[linear-gradient(90deg,rgba(var(--aurora-violet),1),rgba(var(--aurora-pink),0.95),rgba(var(--aurora-cyan),0.9))] transition-all duration-300 ease-out rounded-full"
+        className="h-full bg-[linear-gradient(90deg,rgba(var(--aurora-violet),1),rgba(var(--aurora-pink),0.95),rgba(var(--aurora-cyan),0.9))] transition-[width] duration-300 ease-out rounded-full"
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>

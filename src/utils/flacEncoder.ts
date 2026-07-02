@@ -14,7 +14,8 @@
 
 import type * as LibFlac from 'libflacjs/dist/index';
 import type { CompressionLevel } from 'libflacjs/dist/index';
-import { AUDIO_SIGNAL, FLAC_ENCODING } from '../constants';
+import { FLAC_ENCODING } from '../constants';
+import { interleaveToInt16 } from './pcm';
 
 /** The libFLAC module namespace (all encoder/decoder bindings live on it). */
 type Flac = typeof LibFlac;
@@ -70,18 +71,8 @@ export async function audioBufferToFlac(
   const sampleRate = audioBuffer.sampleRate;
   const samples = audioBuffer.length;
 
-  // Interleave channels and quantize from float [-1, 1] to 16-bit signed PCM,
-  // stored in an Int32Array (libFLAC reads one 32-bit slot per sample).
-  const interleaved = new Int32Array(samples * channels);
-  for (let c = 0; c < channels; c++) {
-    const source = audioBuffer.getChannelData(c);
-    for (let i = 0; i < samples; i++) {
-      const sample = Math.max(-1, Math.min(1, source[i]));
-      interleaved[i * channels + c] = sample < 0
-        ? sample * AUDIO_SIGNAL.PCM.INT16_MIN
-        : sample * AUDIO_SIGNAL.PCM.INT16_MAX;
-    }
-  }
+  // 16-bit PCM widened to an Int32Array (libFLAC reads one 32-bit slot per sample).
+  const interleaved = new Int32Array(interleaveToInt16(audioBuffer));
 
   const encoderId = flac.create_libflac_encoder(
     sampleRate,

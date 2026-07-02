@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { memo, useId } from 'react';
 
 type LogoProps = {
   className?: string;
@@ -15,7 +15,9 @@ type LogoProps = {
  * IDs are namespaced per instance (useId) so multiple logos on one page don't
  * collide on shared gradient/filter defs.
  */
-export function Logo({ className, label }: LogoProps) {
+// Memoised: a ~30-node SVG with per-instance gradient defs, worth skipping on
+// every parent render its two string props don't change.
+export const Logo = memo(function Logo({ className, label }: LogoProps) {
   const uid = useId();
   const id = (name: string) => `${name}-${uid}`;
 
@@ -86,4 +88,4 @@ export function Logo({ className, label }: LogoProps) {
       <circle cx="31" cy="43" r="1.1" fill="#CDEBFF" opacity="0.7" />
     </svg>
   );
-}
+});

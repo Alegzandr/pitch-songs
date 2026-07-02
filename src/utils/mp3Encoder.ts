@@ -1,4 +1,5 @@
 import { Mp3Encoder } from '@breezystack/lamejs';
+import { channelToInt16 } from './pcm';
 
 // Encodes an AudioBuffer to MP3 at the requested bitrate (matched to the source when available).
 export async function audioBufferToMp3(
@@ -9,21 +10,8 @@ export async function audioBufferToMp3(
   const sampleRate = audioBuffer.sampleRate;
   const samples = audioBuffer.length;
 
-  // Convert float samples to PCM
-  const left = new Int16Array(samples);
-  const right = channels > 1 ? new Int16Array(samples) : null;
-
-  const leftData = audioBuffer.getChannelData(0);
-  for (let i = 0; i < samples; i++) {
-    left[i] = Math.max(-1, Math.min(1, leftData[i])) * 0x7fff;
-  }
-
-  if (right && channels > 1) {
-    const rightData = audioBuffer.getChannelData(1);
-    for (let i = 0; i < samples; i++) {
-      right[i] = Math.max(-1, Math.min(1, rightData[i])) * 0x7fff;
-    }
-  }
+  const left = channelToInt16(audioBuffer.getChannelData(0));
+  const right = channels > 1 ? channelToInt16(audioBuffer.getChannelData(1)) : null;
 
   // Encode to MP3
   const mp3encoder = new Mp3Encoder(channels, sampleRate, bitRate);

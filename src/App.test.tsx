@@ -22,7 +22,7 @@ const mockApi = {
   originalFile: null as File | null,
   processedBuffer: null as AudioBuffer | null,
   originalBuffer: null as AudioBuffer | null,
-  playbackTime: 0,
+  playbackClock: { get: () => 0, subscribe: () => () => {} },
   duration: 0,
   volume: 0.7,
   repeat: false,
@@ -77,7 +77,6 @@ describe('App', () => {
     mockApi.processedBuffer = null;
     mockApi.originalBuffer = null;
     mockApi.duration = 0;
-    mockApi.playbackTime = 0;
     mockState.error = null;
     mockState.isLoading = false;
     mockState.isProcessing = false;

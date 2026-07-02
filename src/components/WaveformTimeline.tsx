@@ -1,17 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { WAVEFORM } from '../constants';
+import { useScrubber } from '../hooks/useScrubber';
 import { useWaveform } from '../hooks/useWaveform';
+import { DurationToggle } from './DurationToggle';
 import { useMood } from '../contexts/MoodContext';
 import { shapeEnvelope } from '../utils/waveform';
 import { formatClock } from '../utils/formatters';
 import { createWaveInstrument, type WaveInstrument } from './waveInstrument';
+import { prefersReducedMotion } from './scenes/motion';
+import { IDLE_FRAME_MS } from './scenes/frameClock';
 import type { AudioProcessingOptions } from '../utils/audioProcessor';
+import type { PlaybackClock } from '../utils/playbackClock';
 
 interface WaveformTimelineProps {
   buffer?: AudioBuffer | null;
   duration: number;
-  currentTime: number;
+  /** Playhead position source (effective/output time), read outside React. */
+  clock: PlaybackClock;
   isPlaying: boolean;
   onSeek: (time: number) => void;
   options?: AudioProcessingOptions | null;
@@ -26,11 +32,15 @@ interface WaveformTimelineProps {
  * interaction, the DAW-style stretch/scroll behaviour, and the render loop
  * cadence (every display frame while playing, throttled when idle, one paint
  * per change under reduced motion).
+ *
+ * The playhead arrives through the playback clock (an external store): the
+ * paint loop and the scroll auto-follow read it from a ref on their own
+ * schedule, and React only re-renders when the displayed whole second changes.
  */
-export function WaveformTimeline({
+export const WaveformTimeline = memo(function WaveformTimeline({
   buffer,
   duration,
-  currentTime,
+  clock,
   isPlaying,
   onSeek,
   options,
@@ -38,20 +48,12 @@ export function WaveformTimeline({
 }: WaveformTimelineProps) {
   const { t } = useTranslation();
   const { mood } = useMood();
-  // Click the trailing clock to flip between total duration and time remaining.
-  // Panel and footer keep their own toggle, so each can be set independently.
-  const [showRemaining, setShowRemaining] = useState(false);
-  const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const draggingRef = useRef(false);
-  // While scrubbing we move the playhead visually but defer the actual seek to
-  // drag-end, so dragging stops rebuilding the whole audio graph on every
-  // pointermove. `dragRatio` drives the on-screen playhead during a drag.
+  // `dragRatio` drives the on-screen playhead during a drag; the scrub state
+  // machine itself (visual-only drag, commit on release) lives in useScrubber.
   const [dragRatio, setDragRatio] = useState<number | null>(null);
-  const dragRatioRef = useRef(0);
-  const lastSeekedRatioRef = useRef(0);
   // Latest pointer X during a scrub, so the edge auto-scroll loop can recompute
   // the ratio as the content slides underneath a stationary cursor.
   const lastClientXRef = useRef(0);
@@ -63,11 +65,7 @@ export function WaveformTimeline({
   const panningRef = useRef(false);
   const panStartRef = useRef({ x: 0, scrollLeft: 0 });
 
-  const reduceMotion = useMemo(
-    () =>
-      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
-    []
-  );
+  const reduceMotion = useMemo(prefersReducedMotion, []);
 
   // DAW-style zoom: a constant pixels-per-second, so the content width and the bar count
   // both scale by the stretch factor (1 / rate) and density stays the same. Slowing down
@@ -82,9 +80,9 @@ export function WaveformTimeline({
   // Preview the active effect by reshaping the source envelope in step with the sound.
   const bars = useMemo(() => shapeEnvelope(sourceBars, options), [sourceBars, options]);
 
-  const ratio = duration ? Math.min(1, Math.max(0, currentTime / duration)) : 0;
-  // During a drag the playhead follows the pointer; otherwise it follows playback.
-  const displayRatio = dragRatio ?? ratio;
+  // Whole seconds for the clock text and aria value - the only thing playback
+  // re-renders. The continuous playhead lives in clockRatioRef below.
+  const second = useSyncExternalStore(clock.subscribe, () => Math.floor(clock.get()));
 
   // The instrument's per-effect signatures (weave, afterglow, core pulse).
   const fx = useMemo(
@@ -99,10 +97,12 @@ export function WaveformTimeline({
   );
 
   // Latest inputs for the paint loop, refreshed after every render (the loop
-  // itself never re-subscribes on prop churn - it just reads the ref).
-  const frameRef = useRef({ env: bars, ratio: displayRatio, isPlaying, reducedMotion: reduceMotion, fx });
+  // itself never re-subscribes on prop churn - it just reads the ref). The
+  // playhead ratio is deliberately NOT here: it ticks 60×/s through the clock
+  // subscription, not through renders.
+  const frameRef = useRef({ env: bars, isPlaying, reducedMotion: reduceMotion, fx });
   useEffect(() => {
-    frameRef.current = { env: bars, ratio: displayRatio, isPlaying, reducedMotion: reduceMotion, fx };
+    frameRef.current = { env: bars, isPlaying, reducedMotion: reduceMotion, fx };
   });
 
   // The analyser prop is stable in practice, but route it through a ref so the
@@ -114,11 +114,38 @@ export function WaveformTimeline({
 
   const instrumentRef = useRef<WaveInstrument | null>(null);
 
-  const ratioFromEvent = (clientX: number) => {
-    const rect = contentRef.current?.getBoundingClientRect();
-    if (!rect || !rect.width) return null;
-    return Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
-  };
+  // The scrub drag/commit lifecycle and the ±5s keyboard seeks are shared with
+  // the transport seekbar (useScrubber); this component layers edge auto-scroll
+  // and grab-to-pan on top through the hook's callbacks and primitives.
+  const {
+    draggingRef,
+    dragRatioRef,
+    ratioFromPointer,
+    updateDragRatio,
+    handlePointerDown: beginScrub,
+    handlePointerMove: moveScrub,
+    endDrag: endScrub,
+    handleKeyDown,
+  } = useScrubber({
+    duration,
+    onSeek,
+    surfaceRef: contentRef,
+    getTime: () => clock.get(),
+    onDragVisual: (r) => setDragRatio(r),
+    onDragStart: (event) => {
+      lastClientXRef.current = event.clientX;
+    },
+    onDragMove: (event) => {
+      lastClientXRef.current = event.clientX;
+      // A cursor parked at the edge keeps the clip scrolling so one drag can reach
+      // positions beyond the current viewport.
+      updateEdgeScroll(event.clientX);
+    },
+    onDragEnd: () => {
+      stopEdgeScroll();
+      setDragRatio(null);
+    },
+  });
 
   const stopEdgeScroll = () => {
     if (edgeRafRef.current) cancelAnimationFrame(edgeRafRef.current);
@@ -133,11 +160,8 @@ export function WaveformTimeline({
     const viewport = viewportRef.current;
     if (!viewport || edgeVelRef.current === 0) return;
     viewport.scrollLeft += edgeVelRef.current;
-    const r = ratioFromEvent(lastClientXRef.current);
-    if (r !== null) {
-      setDragRatio(r);
-      dragRatioRef.current = r;
-    }
+    const r = ratioFromPointer(lastClientXRef.current);
+    if (r !== null) updateDragRatio(r);
   };
 
   // Arm/disarm edge auto-scroll based on how deep the pointer sits in either edge
@@ -182,20 +206,7 @@ export function WaveformTimeline({
       return;
     }
     if (event.button !== 0) return;
-    const r = ratioFromEvent(event.clientX);
-    if (r === null) return;
-    draggingRef.current = true;
-    lastClientXRef.current = event.clientX;
-    try {
-      contentRef.current?.setPointerCapture(event.pointerId);
-    } catch {
-      // setPointerCapture is unavailable in some environments; dragging still works.
-    }
-    // Seek immediately on press so a plain click still jumps the playhead.
-    setDragRatio(r);
-    dragRatioRef.current = r;
-    lastSeekedRatioRef.current = r;
-    onSeek(r * duration);
+    beginScrub(event);
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -206,16 +217,7 @@ export function WaveformTimeline({
       viewport.scrollLeft = panStartRef.current.scrollLeft - (event.clientX - panStartRef.current.x);
       return;
     }
-    if (!draggingRef.current || !duration) return;
-    const r = ratioFromEvent(event.clientX);
-    if (r === null) return;
-    lastClientXRef.current = event.clientX;
-    // Visual only - the real seek (and graph rebuild) is deferred to drag-end.
-    setDragRatio(r);
-    dragRatioRef.current = r;
-    // A cursor parked at the edge keeps the clip scrolling so one drag can reach
-    // positions beyond the current viewport.
-    updateEdgeScroll(event.clientX);
+    moveScrub(event);
   };
 
   const endDrag = () => {
@@ -224,22 +226,15 @@ export function WaveformTimeline({
       if (contentRef.current) contentRef.current.style.cursor = '';
       return;
     }
-    if (!draggingRef.current) return;
-    draggingRef.current = false;
-    stopEdgeScroll();
-    // Commit the final position once; skip a redundant seek if the pointer never
-    // moved off the press point (a plain click already seeked there).
-    if (duration && dragRatioRef.current !== lastSeekedRatioRef.current) {
-      onSeek(dragRatioRef.current * duration);
-    }
-    setDragRatio(null);
+    endScrub();
   };
 
   // Auto-follow the playhead through an overflowing (stretched) waveform without a
   // forced reflow each frame: layout metrics are cached and refreshed only when the
   // content actually resizes (ResizeObserver), not read on the per-frame tick.
   const metricsRef = useRef({ scrollWidth: 0, clientWidth: 0 });
-  const ratioRef = useRef(ratio);
+  // Continuous playhead ratio, written by the clock subscription (not renders).
+  const clockRatioRef = useRef(0);
   // Bumped on real size changes so the reduced-motion paint path repaints too.
   const [resizeTick, setResizeTick] = useState(0);
 
@@ -258,10 +253,10 @@ export function WaveformTimeline({
     const { scrollWidth, clientWidth } = metricsRef.current;
     const overflow = scrollWidth - clientWidth;
     if (overflow <= 1) return;
-    const playheadPx = ratioRef.current * scrollWidth;
+    const playheadPx = clockRatioRef.current * scrollWidth;
     const target = Math.min(Math.max(playheadPx - clientWidth / 2, 0), overflow);
     viewport.scrollLeft = target;
-  }, []);
+  }, [draggingRef]);
 
   // One paint with the freshest layout numbers - the whole draw path in one place.
   const drawNow = useCallback((now?: number) => {
@@ -271,12 +266,14 @@ export function WaveformTimeline({
     instrument.draw(
       {
         ...frameRef.current,
+        // During a drag the playhead follows the pointer; otherwise the clock.
+        ratio: draggingRef.current ? dragRatioRef.current : clockRatioRef.current,
         contentWidth: metricsRef.current.scrollWidth || viewport.clientWidth,
         scrollLeft: viewport.scrollLeft,
       },
       now ?? performance.now()
     );
-  }, []);
+  }, [draggingRef, dragRatioRef]);
 
   // Mount the instrument once per canvas lifetime.
   useEffect(() => {
@@ -311,11 +308,24 @@ export function WaveformTimeline({
     return () => ro.disconnect();
   }, [measure, follow, stretch, bars.length]);
 
-  // Per-frame auto-follow: no layout reads here - follow() uses cached metrics.
+  // Follow the clock outside React: each tick refreshes the playhead ratio and
+  // auto-follows the scroll (cached metrics, no layout reads). Under reduced
+  // motion - where there is no paint loop - it also repaints the static frame,
+  // matching the old per-change cadence without any per-frame re-render.
   useEffect(() => {
-    ratioRef.current = ratio;
+    const update = () => {
+      clockRatioRef.current = duration ? Math.min(1, Math.max(0, clock.get() / duration)) : 0;
+      follow();
+      if (reduceMotion) drawNow();
+    };
+    update();
+    return clock.subscribe(update);
+  }, [clock, duration, follow, reduceMotion, drawNow]);
+
+  // Re-anchor the auto-follow when the zoom/stretch or the play state changes.
+  useEffect(() => {
     follow();
-  }, [ratio, stretch, isPlaying, follow]);
+  }, [stretch, isPlaying, follow]);
 
   // The paint loop. rAF runs at the display's own refresh rate; when the
   // instrument is idle (paused, embers gone) it relaxes to ~30fps so a resting
@@ -329,7 +339,7 @@ export function WaveformTimeline({
       raf = requestAnimationFrame(tick);
       const f = frameRef.current;
       const idle = !f.isPlaying && !instrumentRef.current?.hasLiveOverlays();
-      if (idle && now - last < 33) return;
+      if (idle && now - last < IDLE_FRAME_MS) return;
       last = now;
       drawNow(now);
     };
@@ -346,7 +356,7 @@ export function WaveformTimeline({
     const onScroll = () => drawNow();
     viewport?.addEventListener('scroll', onScroll, { passive: true });
     return () => viewport?.removeEventListener('scroll', onScroll);
-  }, [reduceMotion, drawNow, bars, displayRatio, isPlaying, fx, mood, resizeTick]);
+  }, [reduceMotion, drawNow, bars, dragRatio, isPlaying, fx, mood, resizeTick]);
 
   return (
     <div className="relative glass hud-frame rounded-3xl p-5 sm:p-6 flex flex-col gap-5 h-full">
@@ -371,20 +381,14 @@ export function WaveformTimeline({
             {isPlaying ? t('waveform.playing') : t('waveform.idle')}
           </span>
           <p className="text-sm font-semibold tabular-nums text-[rgb(var(--color-text))]" aria-live="polite">
-            {formatClock(currentTime)}
+            {formatClock(second)}
             <span className="text-[rgb(var(--color-text-secondary))] font-normal">
               {' / '}
-              <button
-                type="button"
-                onClick={() => setShowRemaining((v) => !v)}
+              <DurationToggle
+                duration={duration}
+                current={second}
                 className="font-normal tabular-nums transition-colors hover:text-[rgb(var(--color-text))] focus-visible:text-[rgb(var(--color-text))] cursor-pointer"
-                aria-label={t('waveform.toggleRemaining')}
-                aria-pressed={showRemaining}
-              >
-                {showRemaining
-                  ? `-${formatClock(duration - currentTime)}`
-                  : formatClock(duration)}
-              </button>
+              />
             </span>
           </p>
         </div>
@@ -397,7 +401,7 @@ export function WaveformTimeline({
          definite height is essential - the parent grid is items-start, so this
          card is content-sized; without a concrete height the h-full chain
          collapses. */}
-      <div ref={stageRef} className="relative h-52 sm:h-60 rounded-2xl overflow-hidden">
+      <div className="relative h-52 sm:h-60 rounded-2xl overflow-hidden">
         <div
           className="wf-aura pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_30%_20%,rgba(var(--color-ambient),0.10),transparent_50%),radial-gradient(circle_at_80%_0%,rgba(var(--color-accent),0.08),transparent_45%)]"
           aria-hidden="true"
@@ -419,18 +423,14 @@ export function WaveformTimeline({
             aria-label={t('waveform.scrub')}
             aria-valuemin={0}
             aria-valuemax={Math.round(duration) || 0}
-            aria-valuenow={Math.round(currentTime) || 0}
+            aria-valuenow={second || 0}
             tabIndex={0}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
             onContextMenu={(e) => e.preventDefault()}
-            onKeyDown={(e) => {
-              if (!duration) return;
-              if (e.key === 'ArrowRight') onSeek(Math.min(duration, currentTime + 5));
-              if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
-            }}
+            onKeyDown={handleKeyDown}
           />
         </div>
       </div>
@@ -444,4 +444,4 @@ export function WaveformTimeline({
       </div>
     </div>
   );
-}
+});

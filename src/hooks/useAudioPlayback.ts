@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AUDIO_PROCESSING, ERROR_MESSAGES } from '../constants';
 import type { AudioProcessingOptions } from '../utils/audioProcessor';
-import {
-  createEffectChain,
-  applyEffectOptions,
-  applyEqGains,
-  disconnectEffectChain,
-  NEUTRAL_OPTIONS,
-  type EffectChain,
-} from '../utils/effectGraph';
+import { applyEffectOptions, applyEqGains, NEUTRAL_OPTIONS } from '../utils/effectGraph';
+import { buildPlaybackGraph, teardownPlaybackGraph, type PlaybackGraph } from '../utils/playbackGraph';
+import { readStoredBool, readStoredNumber, writeStored } from '../utils/storage';
 import { EQ_FLAT_GAINS } from '../contexts/eqPresets';
 import { getBufferLoudness, type LoudnessProfile } from '../utils/audioLoudness';
+import { createPlaybackClock, type MutablePlaybackClock } from '../utils/playbackClock';
 
 export interface PlaybackState {
   isPlaying: boolean;
-  playbackTime: number;
   duration: number;
   volume: number;
   repeat: boolean;
@@ -38,6 +33,11 @@ interface AttachOptions {
  * the next time playback starts. Playback position is tracked in source-buffer time,
  * advancing at the current playback rate so the playhead stays accurate when the
  * speed changes mid-play.
+ *
+ * The position is deliberately NOT React state: the 60fps tick publishes into
+ * `playbackClock` (a tiny external store) so only the widgets that display the
+ * time subscribe to it - React re-renders happen solely on discrete transitions
+ * (play, stop, seek, ended).
  */
 export function useAudioPlayback({
   getAudioContext,
@@ -45,27 +45,24 @@ export function useAudioPlayback({
   getFallbackBuffer,
   onError,
 }: UseAudioPlaybackParams) {
-  const [state, setState] = useState<PlaybackState>({
+  const [state, setState] = useState<PlaybackState>(() => ({
     isPlaying: false,
-    playbackTime: 0,
     duration: 0,
-    volume: (() => {
-      if (typeof localStorage === 'undefined') return AUDIO_PROCESSING.DEFAULT_VOLUME;
-      const stored = localStorage.getItem(AUDIO_PROCESSING.VOLUME_STORAGE_KEY);
-      const parsed = stored ? parseFloat(stored) : NaN;
-      return Number.isFinite(parsed) ? parsed : AUDIO_PROCESSING.DEFAULT_VOLUME;
-    })(),
-    repeat: (() => {
-      if (typeof localStorage === 'undefined') return false;
-      return localStorage.getItem(AUDIO_PROCESSING.REPEAT_STORAGE_KEY) === 'true';
-    })(),
+    volume: readStoredNumber(AUDIO_PROCESSING.VOLUME_STORAGE_KEY, AUDIO_PROCESSING.DEFAULT_VOLUME),
+    repeat: readStoredBool(AUDIO_PROCESSING.REPEAT_STORAGE_KEY),
     error: null,
-  });
+  }));
 
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const chainRef = useRef<EffectChain | null>(null);
+  // Playhead position store - written by the tick, read by subscribers. Lazy
+  // useState (never set) keeps one instance for the hook's whole life.
+  const [clock] = useState<MutablePlaybackClock>(() => createPlaybackClock());
+
+  // Mirror of state.volume so playAudio doesn't need to re-create on every
+  // volume change (a slider drag would otherwise cascade through handlePlay,
+  // handleTogglePlay and the spacebar keydown subscription per input event).
+  const volumeRef = useRef(state.volume);
+
+  const graphRef = useRef<PlaybackGraph | null>(null);
   const playbackRafRef = useRef<number | null>(null);
   const startOffsetRef = useRef<number>(0);
   const playStartTimeRef = useRef<number>(0);
@@ -77,10 +74,7 @@ export function useAudioPlayback({
   // above, so the EQ shapes playback only and never reaches the offline renderer.
   const eqGainsRef = useRef<number[]>(EQ_FLAT_GAINS);
   const rateRef = useRef<number>(1);
-  const repeatRef = useRef<boolean>(
-    typeof localStorage !== 'undefined' &&
-      localStorage.getItem(AUDIO_PROCESSING.REPEAT_STORAGE_KEY) === 'true',
-  );
+  const repeatRef = useRef<boolean>(state.repeat);
   // Latest playAudio, captured for the onended loop restart without making the
   // callback depend on itself.
   const playAudioRef = useRef<((buffer?: AudioBuffer, startTime?: number) => void) | null>(null);
@@ -101,42 +95,14 @@ export function useAudioPlayback({
   }, [getAudioContext, getBufferDuration]);
 
   const teardownGraph = useCallback(() => {
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.onended = null;
-      try {
-        sourceNodeRef.current.stop();
-      } catch {
-        // ignore stop errors
-      }
-      try {
-        sourceNodeRef.current.disconnect();
-      } catch {
-        // ignore disconnect errors
-      }
-      sourceNodeRef.current = null;
-    }
+    teardownPlaybackGraph(graphRef.current);
+    graphRef.current = null;
+  }, []);
 
-    if (chainRef.current) {
-      disconnectEffectChain(chainRef.current);
-      chainRef.current = null;
-    }
-
-    if (gainNodeRef.current) {
-      try {
-        gainNodeRef.current.disconnect();
-      } catch {
-        // ignore disconnect errors
-      }
-      gainNodeRef.current = null;
-    }
-
-    if (analyserRef.current) {
-      try {
-        analyserRef.current.disconnect();
-      } catch {
-        // ignore disconnect errors
-      }
-      analyserRef.current = null;
+  const cancelProgressTick = useCallback(() => {
+    if (playbackRafRef.current !== null) {
+      cancelAnimationFrame(playbackRafRef.current);
+      playbackRafRef.current = null;
     }
   }, []);
 
@@ -145,21 +111,14 @@ export function useAudioPlayback({
     const nextTime = captureProgress();
 
     teardownGraph();
-
-    if (playbackRafRef.current) {
-      cancelAnimationFrame(playbackRafRef.current);
-      playbackRafRef.current = null;
-    }
+    cancelProgressTick();
 
     activeBufferRef.current = null;
     startOffsetRef.current = nextTime;
     isPlayingRef.current = false;
-    setState((prev) => ({
-      ...prev,
-      isPlaying: false,
-      playbackTime: nextTime,
-    }));
-  }, [captureProgress, teardownGraph]);
+    clock.set(nextTime);
+    setState((prev) => ({ ...prev, isPlaying: false }));
+  }, [cancelProgressTick, captureProgress, clock, teardownGraph]);
 
   const attachBuffer = useCallback((buffer: AudioBuffer | null, options: AttachOptions = {}) => {
     activeBufferRef.current = buffer;
@@ -167,12 +126,9 @@ export function useAudioPlayback({
     const resetPosition = options.resetPosition ?? false;
     const clampedStart = resetPosition ? 0 : Math.min(startOffsetRef.current, duration);
     startOffsetRef.current = clampedStart;
-    setState((prev) => ({
-      ...prev,
-      duration,
-      playbackTime: resetPosition ? 0 : Math.min(prev.playbackTime, duration),
-    }));
-  }, [getBufferDuration]);
+    clock.set(resetPosition ? 0 : Math.min(clock.get(), duration));
+    setState((prev) => ({ ...prev, duration }));
+  }, [clock, getBufferDuration]);
 
   const playAudio = useCallback((buffer?: AudioBuffer, startTime?: number) => {
     const audioContext = getAudioContext();
@@ -194,68 +150,36 @@ export function useAudioPlayback({
     const sessionId = playbackSessionRef.current;
 
     teardownGraph();
-
-    if (playbackRafRef.current) {
-      cancelAnimationFrame(playbackRafRef.current);
-      playbackRafRef.current = null;
-    }
+    cancelProgressTick();
 
     const totalDuration = getBufferDuration(bufferToPlay);
     // Use provided startTime or current offset (don't depend on state.playbackTime)
     const startAt = Math.max(0, Math.min(startTime ?? startOffsetRef.current, totalDuration));
     startOffsetRef.current = startAt;
     activeBufferRef.current = bufferToPlay;
+    rateRef.current = optionsRef.current.speedMultiplier || 1;
 
-    // Volume gain is created first so it stays the master/output node.
-    const gainNode = audioContext.createGain();
-    gainNode.gain.value = state.volume;
-    gainNodeRef.current = gainNode;
+    const graph = buildPlaybackGraph(audioContext, bufferToPlay, {
+      volume: volumeRef.current,
+      options: optionsRef.current,
+      eqGains: eqGainsRef.current,
+    });
+    graphRef.current = graph;
 
-    const chain = createEffectChain(audioContext);
-    chainRef.current = chain;
-
-    const source = audioContext.createBufferSource();
-    source.buffer = bufferToPlay;
-    source.loop = false;
-    const rate = optionsRef.current.speedMultiplier || 1;
-    rateRef.current = rate;
-    source.playbackRate.value = rate;
-
-    // The analyser tees off the effect chain *before* the volume gain so the live
-    // spectrum (and the UI's "breathe with the music" reactivity) tracks the music
-    // and its effects, never the user's listening volume. It sits on a parallel
-    // branch and doesn't need to reach the destination - an AnalyserNode reads its
-    // input whether or not it's connected onward. Optional: skipped when the context
-    // can't create one (older engines, tests).
-    const analyser =
-      typeof audioContext.createAnalyser === 'function' ? audioContext.createAnalyser() : null;
-    if (analyser) {
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
-    }
-    analyserRef.current = analyser;
-
-    source.connect(chain.input);
-    chain.output.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    if (analyser) {
-      chain.output.connect(analyser);
-    }
-    applyEffectOptions(chain, optionsRef.current, audioContext, false);
-    applyEqGains(chain, eqGainsRef.current, audioContext, false);
-
+    // Publishes into the clock store, NOT React state - a 60fps setState here
+    // would re-render the whole App tree every frame.
     const tick = () => {
       if (playbackSessionRef.current !== sessionId) return;
-      if (!activeBufferRef.current || !sourceNodeRef.current) return;
+      if (!activeBufferRef.current || !graphRef.current) return;
       const elapsed = audioContext.currentTime - playStartTimeRef.current;
       const nextTime = Math.min(startOffsetRef.current + elapsed * rateRef.current, totalDuration);
-      setState((prev) => ({ ...prev, playbackTime: nextTime }));
+      clock.set(nextTime);
       if (nextTime < totalDuration) {
         playbackRafRef.current = requestAnimationFrame(tick);
       }
     };
 
-    source.onended = () => {
+    graph.source.onended = () => {
       if (playbackSessionRef.current !== sessionId) return;
       // Repeat: when the track reaches its end, restart from the top with the same
       // buffer and live effects instead of stopping. Manual stops/seeks null this
@@ -266,26 +190,23 @@ export function useAudioPlayback({
         return;
       }
       isPlayingRef.current = false;
-      setState((prev) => ({ ...prev, isPlaying: false, playbackTime: totalDuration }));
+      clock.set(totalDuration);
+      setState((prev) => ({ ...prev, isPlaying: false }));
       teardownGraph();
-      if (playbackRafRef.current) {
-        cancelAnimationFrame(playbackRafRef.current);
-        playbackRafRef.current = null;
-      }
+      cancelProgressTick();
     };
 
     playStartTimeRef.current = audioContext.currentTime;
     isPlayingRef.current = true;
+    clock.set(startAt);
     setState((prev) => ({
       ...prev,
       isPlaying: true,
-      playbackTime: startAt,
       duration: totalDuration,
     }));
-    source.start(0, startAt);
-    sourceNodeRef.current = source;
+    graph.source.start(0, startAt);
     playbackRafRef.current = requestAnimationFrame(tick);
-  }, [getAudioContext, getBufferDuration, getFallbackBuffer, setError, state.volume, teardownGraph]);
+  }, [cancelProgressTick, clock, getAudioContext, getBufferDuration, getFallbackBuffer, setError, teardownGraph]);
 
   // Keep the ref pointing at the latest playAudio so onended can loop without the
   // callback referencing itself (and without an impossible self-dependency).
@@ -301,20 +222,17 @@ export function useAudioPlayback({
     setState((prev) => {
       const next = !prev.repeat;
       repeatRef.current = next;
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(AUDIO_PROCESSING.REPEAT_STORAGE_KEY, next.toString());
-      }
+      writeStored(AUDIO_PROCESSING.REPEAT_STORAGE_KEY, next);
       return { ...prev, repeat: next };
     });
   }, []);
 
   const updateVolume = useCallback((newVolume: number) => {
+    volumeRef.current = newVolume;
     setState((prev) => ({ ...prev, volume: newVolume }));
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(AUDIO_PROCESSING.VOLUME_STORAGE_KEY, newVolume.toString());
-    }
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = newVolume;
+    writeStored(AUDIO_PROCESSING.VOLUME_STORAGE_KEY, newVolume);
+    if (graphRef.current) {
+      graphRef.current.gain.gain.value = newVolume;
     }
   }, []);
 
@@ -326,16 +244,13 @@ export function useAudioPlayback({
     const clamped = Math.max(0, Math.min(time, totalDuration));
     activeBufferRef.current = buffer;
     startOffsetRef.current = clamped;
-    setState((prev) => ({
-      ...prev,
-      playbackTime: clamped,
-      duration: totalDuration,
-    }));
+    clock.set(clamped);
+    setState((prev) => ({ ...prev, duration: totalDuration }));
 
     if (isPlayingRef.current) {
       playAudio(buffer, clamped);
     }
-  }, [getBufferDuration, getFallbackBuffer, playAudio]);
+  }, [clock, getBufferDuration, getFallbackBuffer, playAudio]);
 
   /**
    * Update effects in real time. While playing, parameters ramp on the live graph;
@@ -344,20 +259,20 @@ export function useAudioPlayback({
    */
   const setEffects = useCallback((options: AudioProcessingOptions) => {
     optionsRef.current = options;
-    const chain = chainRef.current;
-    if (!chain || !isPlayingRef.current) return;
+    const graph = graphRef.current;
+    if (!graph || !isPlayingRef.current) return;
 
     const audioContext = getAudioContext();
-    applyEffectOptions(chain, options, audioContext, true);
+    applyEffectOptions(graph.chain, options, audioContext, true);
 
     const nextRate = options.speedMultiplier || 1;
-    if (nextRate !== rateRef.current && sourceNodeRef.current) {
+    if (nextRate !== rateRef.current) {
       // Rebase the position clock before switching rate so elapsed time keeps mapping
       // correctly, then glide the source to the new rate.
       startOffsetRef.current = captureProgress();
       playStartTimeRef.current = audioContext.currentTime;
       rateRef.current = nextRate;
-      const param = sourceNodeRef.current.playbackRate;
+      const param = graph.source.playbackRate;
       if (typeof param.setTargetAtTime === 'function') {
         param.setTargetAtTime(nextRate, audioContext.currentTime, 0.04);
       } else {
@@ -373,9 +288,9 @@ export function useAudioPlayback({
    */
   const setEq = useCallback((gains: number[]) => {
     eqGainsRef.current = gains;
-    const chain = chainRef.current;
-    if (!chain || !isPlayingRef.current) return;
-    applyEqGains(chain, gains, getAudioContext(), true);
+    const graph = graphRef.current;
+    if (!graph || !isPlayingRef.current) return;
+    applyEqGains(graph.chain, gains, getAudioContext(), true);
   }, [getAudioContext]);
 
   const resetPlayback = useCallback(() => {
@@ -384,31 +299,27 @@ export function useAudioPlayback({
     activeBufferRef.current = null;
     optionsRef.current = NEUTRAL_OPTIONS;
     rateRef.current = 1;
+    clock.set(0);
     setState((prev) => ({
       ...prev,
       isPlaying: false,
-      playbackTime: 0,
       duration: 0,
       error: null,
     }));
-  }, [stopPlayback]);
+  }, [clock, stopPlayback]);
 
-  // Cleanup on unmount - stop playback
   useEffect(() => {
     return () => {
       playbackSessionRef.current += 1;
       teardownGraph();
-      if (playbackRafRef.current) {
-        cancelAnimationFrame(playbackRafRef.current);
-        playbackRafRef.current = null;
-      }
+      cancelProgressTick();
       activeBufferRef.current = null;
       isPlayingRef.current = false;
     };
-  }, [teardownGraph]);
+  }, [cancelProgressTick, teardownGraph]);
 
   // Live analyser node for visualisations; null while stopped.
-  const getAnalyser = useCallback(() => analyserRef.current, []);
+  const getAnalyser = useCallback(() => graphRef.current?.analyser ?? null, []);
 
   // The active track's loudness profile (peak + gated integrated RMS), or null when
   // nothing is attached. Lets reactive visuals calibrate their intensity to each
@@ -421,6 +332,8 @@ export function useAudioPlayback({
 
   return {
     state,
+    /** Playhead position store - subscribe/read without re-rendering per frame. */
+    playbackClock: clock,
     playAudio,
     stopAudio,
     seekTo,

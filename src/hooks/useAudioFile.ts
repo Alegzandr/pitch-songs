@@ -91,30 +91,32 @@ export function useAudioFile(): UseAudioFileReturn {
 
     setState((prev) => ({ ...prev, isLoading: true, error: null, progress: 0 }));
     try {
-      // Extract metadata from file headers BEFORE decoding
+      // Header metadata is read BEFORE decoding: decode normalizes the stream and
+      // loses the original sample rate / bit depth.
       const rawMetadata = await extractAudioMetadata(file);
 
-      // Decode audio with Web Audio API
       const buffer = await audioProcessor.loadAudioFile(file);
       const bufferDuration = getBufferDuration(buffer);
 
-      // Extract original format information
       const originalFormat = file.name.split('.').pop()?.toLowerCase() || '';
       const originalMimeType = file.type || '';
 
-      // Use raw metadata if available, otherwise fall back to decoded buffer
+      // Prefer header metadata; fall back to the decoded buffer.
       const sampleRate = rawMetadata.sampleRate || buffer.sampleRate;
       const channels = rawMetadata.channels || buffer.numberOfChannels;
       const bitDepth = rawMetadata.bitDepth || estimateBitDepth(originalFormat, file.size, bufferDuration, channels, sampleRate);
 
-      // Estimate bitrate from file size and duration (in kbps)
-      const bitrate = bufferDuration > 0
+      const bitrateKbps = bufferDuration > 0
         ? Math.round((file.size * 8) / bufferDuration / 1000)
         : null;
 
       setOriginalFile(file);
       setOriginalBuffer(buffer);
-      setMetadata({ sampleRate, channels, bitrate, bitDepth, originalFormat, originalMimeType });
+      // Drop any stale processed render of the PREVIOUS track: getPlaybackBuffer
+      // prefers processedBuffer, so keeping it would both leak a full AudioBuffer
+      // and shadow the freshly-loaded original.
+      setProcessedBuffer(null);
+      setMetadata({ sampleRate, channels, bitrate: bitrateKbps, bitDepth, originalFormat, originalMimeType });
       setState((prev) => ({ ...prev, isLoading: false, progress: 100 }));
       return buffer;
     } catch (error) {

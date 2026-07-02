@@ -4,6 +4,7 @@
  */
 
 import { METADATA_EXTRACTION, ERROR_MESSAGES } from '../constants';
+import { readAscii } from './binary';
 
 export interface RawAudioMetadata {
   sampleRate: number | null;
@@ -11,111 +12,45 @@ export interface RawAudioMetadata {
   bitDepth: number | null;
 }
 
-/**
- * Read a 32-bit little-endian integer from a DataView
- */
-function readUint32LE(view: DataView, offset: number): number {
-  return view.getUint32(offset, true);
-}
+const NO_METADATA: RawAudioMetadata = { sampleRate: null, channels: null, bitDepth: null };
 
-/**
- * Read a 16-bit little-endian integer from a DataView
- */
-function readUint16LE(view: DataView, offset: number): number {
-  return view.getUint16(offset, true);
-}
-
-/**
- * Read a 32-bit big-endian integer from a DataView
- */
-function readUint32BE(view: DataView, offset: number): number {
-  return view.getUint32(offset, false);
-}
-
-/**
- * Read a 16-bit big-endian integer from a DataView
- */
-function readUint16BE(view: DataView, offset: number): number {
-  return view.getUint16(offset, false);
-}
-
-/**
- * Read a string from a DataView
- */
-function readString(view: DataView, offset: number, length: number): string {
-  let str = '';
-  for (let i = 0; i < length; i++) {
-    str += String.fromCharCode(view.getUint8(offset + i));
-  }
-  return str;
-}
-
-/**
- * Extract metadata from WAV file header
- */
 async function extractWavMetadata(file: File): Promise<RawAudioMetadata> {
   const buffer = await file.slice(0, METADATA_EXTRACTION.HEADER_SIZES.WAV).arrayBuffer();
   const view = new DataView(buffer);
 
-  // Check for RIFF header
-  const riff = readString(view, 0, 4);
-  if (riff !== 'RIFF') {
-    return { sampleRate: null, channels: null, bitDepth: null };
-  }
+  if (readAscii(view, 0, 4) !== 'RIFF') return NO_METADATA;
+  if (readAscii(view, 8, 4) !== 'WAVE') return NO_METADATA;
+  if (readAscii(view, 12, 4) !== 'fmt ') return NO_METADATA;
 
-  // Check for WAVE format
-  const wave = readString(view, 8, 4);
-  if (wave !== 'WAVE') {
-    return { sampleRate: null, channels: null, bitDepth: null };
-  }
-
-  // Read format chunk
-  const fmt = readString(view, 12, 4);
-  if (fmt !== 'fmt ') {
-    return { sampleRate: null, channels: null, bitDepth: null };
-  }
-
-  const channels = readUint16LE(view, 22);
-  const sampleRate = readUint32LE(view, 24);
-  const bitDepth = readUint16LE(view, 34);
+  const channels = view.getUint16(22, true);
+  const sampleRate = view.getUint32(24, true);
+  const bitDepth = view.getUint16(34, true);
 
   return { sampleRate, channels, bitDepth };
 }
 
-/**
- * Extract metadata from AIFF file header
- */
 async function extractAiffMetadata(file: File): Promise<RawAudioMetadata> {
   const buffer = await file.slice(0, METADATA_EXTRACTION.HEADER_SIZES.AIFF).arrayBuffer();
   const view = new DataView(buffer);
 
-  // Check for FORM header
-  const form = readString(view, 0, 4);
-  if (form !== 'FORM') {
-    return { sampleRate: null, channels: null, bitDepth: null };
-  }
+  if (readAscii(view, 0, 4) !== 'FORM') return NO_METADATA;
+  const aiff = readAscii(view, 8, 4);
+  if (aiff !== 'AIFF' && aiff !== 'AIFC') return NO_METADATA;
 
-  // Check for AIFF format
-  const aiff = readString(view, 8, 4);
-  if (aiff !== 'AIFF' && aiff !== 'AIFC') {
-    return { sampleRate: null, channels: null, bitDepth: null };
-  }
-
-  // Find COMM chunk
+  // Find the COMM chunk
   let offset = 12;
   while (offset < buffer.byteLength - 8) {
-    const chunkId = readString(view, offset, 4);
-    const chunkSize = readUint32BE(view, offset + 4);
+    const chunkId = readAscii(view, offset, 4);
+    const chunkSize = view.getUint32(offset + 4, false);
 
     if (chunkId === 'COMM') {
-      const channels = readUint16BE(view, offset + 8);
-      const bitDepth = readUint16BE(view, offset + 14);
+      const channels = view.getUint16(offset + 8, false);
+      const bitDepth = view.getUint16(offset + 14, false);
 
-      // Read 80-bit extended precision sample rate (simplified)
-      const exponent = readUint16BE(view, offset + 16);
-      const mantissaHigh = readUint32BE(view, offset + 18);
-
-      // Convert from 80-bit extended to regular number (simplified)
+      // The sample rate is 80-bit extended precision; the high 32 mantissa bits
+      // are enough to reconstruct every standard audio rate.
+      const exponent = view.getUint16(offset + 16, false);
+      const mantissaHigh = view.getUint32(offset + 18, false);
       const sampleRate = mantissaHigh / Math.pow(2, 32 - (exponent - 0x3ffe));
 
       return { sampleRate: Math.round(sampleRate), channels, bitDepth };
@@ -124,26 +59,21 @@ async function extractAiffMetadata(file: File): Promise<RawAudioMetadata> {
     offset += 8 + chunkSize;
   }
 
-  return { sampleRate: null, channels: null, bitDepth: null };
+  return NO_METADATA;
 }
 
-/**
- * Extract metadata from FLAC file header
- */
 async function extractFlacMetadata(file: File): Promise<RawAudioMetadata> {
   const buffer = await file.slice(0, METADATA_EXTRACTION.HEADER_SIZES.FLAC).arrayBuffer();
   const view = new DataView(buffer);
 
-  // Check for fLaC header
-  const flac = readString(view, 0, 4);
-  if (flac !== 'fLaC') {
-    return { sampleRate: null, channels: null, bitDepth: null };
+  if (readAscii(view, 0, 4) !== 'fLaC') {
+    return NO_METADATA;
   }
 
   // Read STREAMINFO block (should be first metadata block)
   const blockType = view.getUint8(4) & 0x7f;
   if (blockType !== 0) {
-    return { sampleRate: null, channels: null, bitDepth: null };
+    return NO_METADATA;
   }
 
   // Read sample rate (20 bits starting at byte 18, bits 0-19)
@@ -163,16 +93,13 @@ async function extractFlacMetadata(file: File): Promise<RawAudioMetadata> {
   return { sampleRate, channels, bitDepth };
 }
 
-/**
- * Extract metadata from MP3 file header
- */
 async function extractMp3Metadata(file: File): Promise<RawAudioMetadata> {
   const buffer = await file.slice(0, METADATA_EXTRACTION.HEADER_SIZES.MP3_SEARCH).arrayBuffer();
   const view = new DataView(buffer);
 
   // Skip ID3v2 tag if present
   let offset = 0;
-  if (readString(view, 0, 3) === 'ID3') {
+  if (readAscii(view, 0, 3) === 'ID3') {
     const size = (view.getUint8(6) << 21) | (view.getUint8(7) << 14) |
                  (view.getUint8(8) << 7) | view.getUint8(9);
     offset = 10 + size;
@@ -201,7 +128,7 @@ async function extractMp3Metadata(file: File): Promise<RawAudioMetadata> {
     offset++;
   }
 
-  return { sampleRate: null, channels: null, bitDepth: null };
+  return NO_METADATA;
 }
 
 /**
@@ -230,10 +157,10 @@ export async function extractAudioMetadata(file: File): Promise<RawAudioMetadata
       // For other formats (OGG, M4A, WebM), we can't easily extract without heavy parsing
       // Return null values to use decoded buffer info as fallback
       default:
-        return { sampleRate: null, channels: null, bitDepth: null };
+        return NO_METADATA;
     }
   } catch (error) {
     console.warn(ERROR_MESSAGES.METADATA_EXTRACTION_FAILED(extension), error);
-    return { sampleRate: null, channels: null, bitDepth: null };
+    return NO_METADATA;
   }
 }

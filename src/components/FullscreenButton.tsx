@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Maximize, Minimize } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
  * the `fullscreenchange` event so the icon and label stay correct even when the
  * user leaves fullscreen with the Esc key or the browser chrome.
  */
-export function FullscreenButton() {
+// Memoised: prop-less chrome - its state is entirely internal (fullscreenchange).
+export const FullscreenButton = memo(function FullscreenButton() {
   const { t } = useTranslation();
   const [isFullscreen, setIsFullscreen] = useState(
     () => typeof document !== 'undefined' && Boolean(document.fullscreenElement),
@@ -53,4 +54,4 @@ export function FullscreenButton() {
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   );
-}
+});

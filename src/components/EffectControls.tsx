@@ -141,21 +141,143 @@ export const EffectControls = memo(function EffectControls({ onChange, disabled,
         }
     );
 
-    // Normalised 0..1 level of the active effect's primary parameter - drives the
+    // The slider(s) each mode exposes, and (via `meterIndex`) which one drives the
     // reactive VU-meter so the readout tracks the setting as you turn it.
     const D = EFFECT_DEFAULTS;
-    const norm = (val: number, min: number, max: number) =>
-        max > min ? (val - min) / (max - min) : 0;
+    const modeSliders: Record<
+        Exclude<EffectMode, "none">,
+        {
+            meterIndex: number;
+            sliders: {
+                id: string;
+                label: string;
+                value: number;
+                onChange: (value: number) => void;
+                defaultValue: number;
+                min: number;
+                max: number;
+                step: number;
+                formatValue: (value: number) => string;
+                markers: string[];
+            }[];
+        }
+    > = {
+        "speed-up": {
+            meterIndex: 0,
+            sliders: [
+                {
+                    id: "speed-slider",
+                    label: t("effects.speed"),
+                    value: speedMultiplier,
+                    onChange: setSpeedMultiplier,
+                    defaultValue: D.SPEED_UP.DEFAULT,
+                    min: D.SPEED_UP.MIN,
+                    max: D.SPEED_UP.MAX,
+                    step: D.SPEED_UP.STEP,
+                    formatValue: (v) => formatSpeedMultiplier(v, 2),
+                    markers: [
+                        `${D.SPEED_UP.MIN.toFixed(2)}x`,
+                        `${D.SPEED_UP.MAX.toFixed(2)}x`,
+                    ],
+                },
+            ],
+        },
+        "slow-reverb": {
+            meterIndex: 1,
+            sliders: [
+                {
+                    id: "slow-speed-slider",
+                    label: t("effects.slowSpeed"),
+                    value: slowSpeed,
+                    onChange: setSlowSpeed,
+                    defaultValue: D.SLOW_REVERB.SPEED_DEFAULT,
+                    min: D.SLOW_REVERB.SPEED_MIN,
+                    max: D.SLOW_REVERB.SPEED_MAX,
+                    step: D.SLOW_REVERB.SPEED_STEP,
+                    formatValue: (v) => formatSpeedMultiplier(v, 2),
+                    markers: [
+                        `${D.SLOW_REVERB.SPEED_MIN.toFixed(2)}x`,
+                        `${D.SLOW_REVERB.SPEED_DEFAULT.toFixed(2)}x`,
+                        `${D.SLOW_REVERB.SPEED_MAX.toFixed(2)}x`,
+                    ],
+                },
+                {
+                    id: "reverb-slider",
+                    label: t("effects.reverb"),
+                    value: reverbAmount,
+                    onChange: setReverbAmount,
+                    defaultValue: D.SLOW_REVERB.REVERB_DEFAULT,
+                    min: D.SLOW_REVERB.REVERB_MIN,
+                    max: D.SLOW_REVERB.REVERB_MAX,
+                    step: D.SLOW_REVERB.REVERB_STEP,
+                    formatValue: formatPercentage,
+                    markers: [
+                        `${Math.round(D.SLOW_REVERB.REVERB_MIN * 100)}%`,
+                        `${Math.round(D.SLOW_REVERB.REVERB_MAX * 100)}%`,
+                    ],
+                },
+            ],
+        },
+        "8d-audio": {
+            meterIndex: 0,
+            sliders: [
+                {
+                    id: "rotation-slider",
+                    label: t("effects.rotationSpeed"),
+                    value: rotationSpeed,
+                    onChange: setRotationSpeed,
+                    defaultValue: D.EIGHT_D_AUDIO.ROTATION_DEFAULT,
+                    min: D.EIGHT_D_AUDIO.ROTATION_MIN,
+                    max: D.EIGHT_D_AUDIO.ROTATION_MAX,
+                    step: D.EIGHT_D_AUDIO.ROTATION_STEP,
+                    formatValue: formatSpeedMultiplier,
+                    markers: [
+                        `${D.EIGHT_D_AUDIO.ROTATION_MIN}x`,
+                        `${D.EIGHT_D_AUDIO.ROTATION_MAX}x`,
+                    ],
+                },
+            ],
+        },
+        "bass-boost": {
+            meterIndex: 0,
+            sliders: [
+                {
+                    id: "bass-slider",
+                    label: t("effects.bassIntensity"),
+                    value: bassBoostIntensity,
+                    onChange: setBassBoostIntensity,
+                    defaultValue: D.BASS_BOOST_UI.INTENSITY_DEFAULT,
+                    min: D.BASS_BOOST_UI.INTENSITY_MIN,
+                    max: D.BASS_BOOST_UI.INTENSITY_MAX,
+                    step: D.BASS_BOOST_UI.INTENSITY_STEP,
+                    formatValue: () => bassIntensityLabel,
+                    markers: [t("effects.bassLight"), t("effects.bassStrong")],
+                },
+                {
+                    id: "underwater-slider",
+                    label: t("effects.underwater"),
+                    value: bassUnderwater,
+                    onChange: setBassUnderwater,
+                    defaultValue: D.BASS_BOOST_UI.UNDERWATER_DEFAULT,
+                    min: D.BASS_BOOST_UI.UNDERWATER_MIN,
+                    max: D.BASS_BOOST_UI.UNDERWATER_MAX,
+                    step: D.BASS_BOOST_UI.UNDERWATER_STEP,
+                    formatValue: formatPercentage,
+                    markers: [
+                        t("effects.underwaterSurface"),
+                        t("effects.underwaterDeep"),
+                    ],
+                },
+            ],
+        },
+    };
+
+    const active = mode === "none" ? null : modeSliders[mode];
+    const meterSlider = active?.sliders[active.meterIndex];
     const activeLevel =
-        mode === "none"
-            ? 0
-            : mode === "speed-up"
-            ? norm(speedMultiplier, D.SPEED_UP.MIN, D.SPEED_UP.MAX)
-            : mode === "slow-reverb"
-              ? norm(reverbAmount, D.SLOW_REVERB.REVERB_MIN, D.SLOW_REVERB.REVERB_MAX)
-              : mode === "8d-audio"
-                ? norm(rotationSpeed, D.EIGHT_D_AUDIO.ROTATION_MIN, D.EIGHT_D_AUDIO.ROTATION_MAX)
-                : norm(bassBoostIntensity, D.BASS_BOOST_UI.INTENSITY_MIN, D.BASS_BOOST_UI.INTENSITY_MAX);
+        meterSlider && meterSlider.max > meterSlider.min
+            ? (meterSlider.value - meterSlider.min) / (meterSlider.max - meterSlider.min)
+            : 0;
 
     return (
         <div className="flex flex-col gap-5">
@@ -192,115 +314,16 @@ export const EffectControls = memo(function EffectControls({ onChange, disabled,
                     key={mode}
                     className="pt-1 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300"
                 >
-                    {mode === "none" ? (
+                    {active ? (
+                        <div className="space-y-6">
+                            {active.sliders.map((slider) => (
+                                <EffectSlider key={slider.id} {...slider} disabled={disabled} />
+                            ))}
+                        </div>
+                    ) : (
                         <p className="py-2 text-sm text-[rgb(var(--color-text-secondary))]">
                             {t("effects.originalHint")}
                         </p>
-                    ) : mode === "speed-up" ? (
-                        <EffectSlider
-                            id="speed-slider"
-                            label={t("effects.speed")}
-                            value={speedMultiplier}
-                            defaultValue={EFFECT_DEFAULTS.SPEED_UP.DEFAULT}
-                            min={EFFECT_DEFAULTS.SPEED_UP.MIN}
-                            max={EFFECT_DEFAULTS.SPEED_UP.MAX}
-                            step={EFFECT_DEFAULTS.SPEED_UP.STEP}
-                            disabled={disabled}
-                            onChange={setSpeedMultiplier}
-                            formatValue={(v) => formatSpeedMultiplier(v, 2)}
-                            markers={[
-                                `${EFFECT_DEFAULTS.SPEED_UP.MIN.toFixed(2)}x`,
-                                `${EFFECT_DEFAULTS.SPEED_UP.MAX.toFixed(2)}x`,
-                            ]}
-                        />
-                    ) : mode === "slow-reverb" ? (
-                        <div className="space-y-6">
-                            <EffectSlider
-                                id="slow-speed-slider"
-                                label={t("effects.slowSpeed")}
-                                value={slowSpeed}
-                                defaultValue={EFFECT_DEFAULTS.SLOW_REVERB.SPEED_DEFAULT}
-                                min={EFFECT_DEFAULTS.SLOW_REVERB.SPEED_MIN}
-                                max={EFFECT_DEFAULTS.SLOW_REVERB.SPEED_MAX}
-                                step={EFFECT_DEFAULTS.SLOW_REVERB.SPEED_STEP}
-                                disabled={disabled}
-                                onChange={setSlowSpeed}
-                                formatValue={(v) => formatSpeedMultiplier(v, 2)}
-                                markers={[
-                                    `${EFFECT_DEFAULTS.SLOW_REVERB.SPEED_MIN.toFixed(2)}x`,
-                                    `${EFFECT_DEFAULTS.SLOW_REVERB.SPEED_DEFAULT.toFixed(2)}x`,
-                                    `${EFFECT_DEFAULTS.SLOW_REVERB.SPEED_MAX.toFixed(2)}x`,
-                                ]}
-                            />
-                            <EffectSlider
-                                id="reverb-slider"
-                                label={t("effects.reverb")}
-                                value={reverbAmount}
-                                defaultValue={EFFECT_DEFAULTS.SLOW_REVERB.REVERB_DEFAULT}
-                                min={EFFECT_DEFAULTS.SLOW_REVERB.REVERB_MIN}
-                                max={EFFECT_DEFAULTS.SLOW_REVERB.REVERB_MAX}
-                                step={EFFECT_DEFAULTS.SLOW_REVERB.REVERB_STEP}
-                                disabled={disabled}
-                                onChange={setReverbAmount}
-                                formatValue={formatPercentage}
-                                markers={[
-                                    `${Math.round(EFFECT_DEFAULTS.SLOW_REVERB.REVERB_MIN * 100)}%`,
-                                    `${Math.round(EFFECT_DEFAULTS.SLOW_REVERB.REVERB_MAX * 100)}%`,
-                                ]}
-                            />
-                        </div>
-                    ) : mode === "8d-audio" ? (
-                        <EffectSlider
-                            id="rotation-slider"
-                            label={t("effects.rotationSpeed")}
-                            value={rotationSpeed}
-                            defaultValue={EFFECT_DEFAULTS.EIGHT_D_AUDIO.ROTATION_DEFAULT}
-                            min={EFFECT_DEFAULTS.EIGHT_D_AUDIO.ROTATION_MIN}
-                            max={EFFECT_DEFAULTS.EIGHT_D_AUDIO.ROTATION_MAX}
-                            step={EFFECT_DEFAULTS.EIGHT_D_AUDIO.ROTATION_STEP}
-                            disabled={disabled}
-                            onChange={setRotationSpeed}
-                            formatValue={formatSpeedMultiplier}
-                            markers={[
-                                `${EFFECT_DEFAULTS.EIGHT_D_AUDIO.ROTATION_MIN}x`,
-                                `${EFFECT_DEFAULTS.EIGHT_D_AUDIO.ROTATION_MAX}x`,
-                            ]}
-                        />
-                    ) : (
-                        <div className="space-y-6">
-                            <EffectSlider
-                                id="bass-slider"
-                                label={t("effects.bassIntensity")}
-                                value={bassBoostIntensity}
-                                defaultValue={EFFECT_DEFAULTS.BASS_BOOST_UI.INTENSITY_DEFAULT}
-                                min={EFFECT_DEFAULTS.BASS_BOOST_UI.INTENSITY_MIN}
-                                max={EFFECT_DEFAULTS.BASS_BOOST_UI.INTENSITY_MAX}
-                                step={EFFECT_DEFAULTS.BASS_BOOST_UI.INTENSITY_STEP}
-                                disabled={disabled}
-                                onChange={setBassBoostIntensity}
-                                formatValue={() => bassIntensityLabel}
-                                markers={[
-                                    t("effects.bassLight"),
-                                    t("effects.bassStrong"),
-                                ]}
-                            />
-                            <EffectSlider
-                                id="underwater-slider"
-                                label={t("effects.underwater")}
-                                value={bassUnderwater}
-                                defaultValue={EFFECT_DEFAULTS.BASS_BOOST_UI.UNDERWATER_DEFAULT}
-                                min={EFFECT_DEFAULTS.BASS_BOOST_UI.UNDERWATER_MIN}
-                                max={EFFECT_DEFAULTS.BASS_BOOST_UI.UNDERWATER_MAX}
-                                step={EFFECT_DEFAULTS.BASS_BOOST_UI.UNDERWATER_STEP}
-                                disabled={disabled}
-                                onChange={setBassUnderwater}
-                                formatValue={formatPercentage}
-                                markers={[
-                                    t("effects.underwaterSurface"),
-                                    t("effects.underwaterDeep"),
-                                ]}
-                            />
-                        </div>
                     )}
                 </div>
             </div>

@@ -1,5 +1,8 @@
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { IDLE_FRAME_MS } from './scenes/frameClock';
+import { createMoodPaletteCache } from './scenes/paletteReader';
+import { prefersReducedMotion } from './scenes/motion';
 
 interface SpectrumMeterProps {
   /** Returns the live analyser node, or null while stopped. */
@@ -28,8 +31,7 @@ export const SpectrumMeter = memo(function SpectrumMeter({ getAnalyser, isPlayin
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const reduceMotion =
-      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduceMotion = prefersReducedMotion();
 
     let raf = 0;
     let freq: Uint8Array<ArrayBuffer> | null = null;
@@ -43,27 +45,23 @@ export const SpectrumMeter = memo(function SpectrumMeter({ getAnalyser, isPlayin
 
     // Idle-throttle clock.
     let last = 0;
-    // Cached palette + gradient: getComputedStyle (in resolve) is a synchronous
-    // style flush, so re-resolve only on a mood change or while the palette
-    // cross-fades (.mood-shifting), and reuse the gradient object otherwise.
+    // Cached palette + gradient; the mood-palette cache re-resolves only when the
+    // mood changes or cross-fades, and the gradient object is reused otherwise.
     let accent = '';
     let ambient = '';
     let grad: CanvasGradient | null = null;
     let gradH = -1;
-    let gradMood: string | undefined;
-    let colorsRead = false;
-    const readColors = () => {
+    const palette = createMoodPaletteCache(() => {
       accent = resolve('--color-accent', 'rgb(167,139,250)');
       ambient = resolve('--color-ambient', 'rgb(56,224,232)');
       grad = null;
-      colorsRead = true;
-    };
+    });
 
     const draw = (now: number) => {
       // Throttle ONLY the idle travelling-wave (audio loaded but paused) to ~30fps.
       // The live spectrum and the reduced-motion settle path keep their cadence.
       const liveNow = isPlaying && !!getAnalyser();
-      if (!liveNow && !reduceMotion && now - last < 33) {
+      if (!liveNow && !reduceMotion && now - last < IDLE_FRAME_MS) {
         raf = requestAnimationFrame(draw);
         return;
       }
@@ -108,14 +106,7 @@ export const SpectrumMeter = memo(function SpectrumMeter({ getAnalyser, isPlayin
         }
       }
 
-      const rootEl = document.documentElement;
-      const mood = rootEl.dataset.mood;
-      // Cheap dataset/classList reads gate the costly getComputedStyle: refresh the
-      // palette only on a mood change or while it's cross-fading, else reuse it.
-      if (!colorsRead || mood !== gradMood || rootEl.classList.contains('mood-shifting')) {
-        gradMood = mood;
-        readColors();
-      }
+      palette.ensure();
       if (!grad || gradH !== cssH) {
         grad = ctx.createLinearGradient(0, cssH, 0, 0);
         grad.addColorStop(0, ambient);

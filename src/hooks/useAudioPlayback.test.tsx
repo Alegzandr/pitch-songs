@@ -91,7 +91,7 @@ describe('useAudioPlayback', () => {
     const { result } = renderPlayback();
 
     expect(result.current.state.isPlaying).toBe(false);
-    expect(result.current.state.playbackTime).toBe(0);
+    expect(result.current.playbackClock.get()).toBe(0);
     expect(result.current.state.duration).toBe(0);
     expect(result.current.state.volume).toBeCloseTo(AUDIO_PROCESSING.DEFAULT_VOLUME);
   });
@@ -104,7 +104,7 @@ describe('useAudioPlayback', () => {
     });
 
     expect(result.current.state.duration).toBeCloseTo(mockBuffer.duration);
-    expect(result.current.state.playbackTime).toBe(0);
+    expect(result.current.playbackClock.get()).toBe(0);
   });
 
   it('plays audio with provided buffer and updates state', () => {
@@ -165,7 +165,7 @@ describe('useAudioPlayback', () => {
       result.current.seekTo(1);
     });
 
-    expect(result.current.state.playbackTime).toBeCloseTo(1);
+    expect(result.current.playbackClock.get()).toBeCloseTo(1);
   });
 
   it('restarts playback when seeking during play', () => {
@@ -186,7 +186,7 @@ describe('useAudioPlayback', () => {
     expect(secondSource.start).toHaveBeenCalled();
     const [, offset] = secondSource.start.mock.calls[0] as unknown as [number, number];
     expect(offset).toBeCloseTo(0.5);
-    expect(result.current.state.playbackTime).toBeCloseTo(0.5);
+    expect(result.current.playbackClock.get()).toBeCloseTo(0.5);
   });
 
   it('loops from the top when repeat is armed and the track ends', () => {

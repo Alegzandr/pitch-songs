@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useMood } from '../contexts/MoodContext';
-import { MOODS } from '../contexts/moods';
+import { MOODS, SCENE_PHOTO_CLASS } from '../contexts/moods';
 import type { SceneId } from '../contexts/moods';
 import { animatedBackdropAllowed } from './scenes/motion';
 
@@ -15,17 +15,6 @@ import { animatedBackdropAllowed } from './scenes/motion';
  * `prefers-reduced-motion` (or on touch) nothing here runs and the calm 300ms
  * body cross-fade stands in.
  */
-
-/** The photo class AmbientScene paints per scene, so the outgoing world layer
- *  shows the exact backdrop we're leaving. `daybreak` has no photo (pure CSS). */
-const SCENE_PHOTO_CLASS: Record<SceneId, string | null> = {
-  daybreak: null,
-  dusk: 'scene-photo-dusk',
-  tidal: 'scene-photo-tidal',
-  nocturne: 'scene-photo-nocturne',
-  aurora: 'scene-photo-nebula',
-  horizon: 'scene-photo-horizon',
-};
 
 /** Total dive length; keep in sync with the dive keyframes in index.css. */
 const DIVE_MS = 1020;

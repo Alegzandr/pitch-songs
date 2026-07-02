@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Volume2, Volume1, VolumeX } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
@@ -21,7 +21,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * The whole control is a wheel target, so scrolling anywhere over it (a generous
  * hit area, not just the thin track) nudges the volume without scrolling the page.
  */
-export function VolumeControl({ volume, onVolumeChange, disabled, className = '' }: VolumeControlProps) {
+export const VolumeControl = memo(function VolumeControl({ volume, onVolumeChange, disabled, className = '' }: VolumeControlProps) {
   const { t } = useTranslation();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const handleDoubleClickReset = useDoubleClickReset(
@@ -104,4 +104,4 @@ export function VolumeControl({ volume, onVolumeChange, disabled, className = ''
       />
     </div>
   );
-}
+});

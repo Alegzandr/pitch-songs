@@ -92,9 +92,6 @@ export const FLAC_ENCODING = {
 // ============================================================================
 
 export const BIT_DEPTH = {
-  /** Common bit depths for audio files */
-  COMMON: [8, 16, 24, 32] as const,
-
   /** Bit depth estimation boundaries (bytes per sample * 8) */
   BOUNDARIES: {
     /** <= 12 → 8-bit */
@@ -216,20 +213,6 @@ export const MEDIA_RECORDER_FORMATS = {
     aac: ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4'],
     mp4: ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4'],
   } as const,
-
-  /** All possible MIME types to test for browser support */
-  POSSIBLE_MIME_TYPES: [
-    'audio/webm',
-    'audio/webm;codecs=opus',
-    'audio/webm;codecs=vorbis',
-    'audio/ogg',
-    'audio/ogg;codecs=opus',
-    'audio/ogg;codecs=vorbis',
-    'audio/mp4',
-    'audio/mp4;codecs=mp4a.40.2', // AAC-LC
-    'audio/mpeg', // Some browsers might support MP3
-    'audio/wav', // Some browsers might support WAV
-  ] as const,
 } as const;
 
 // ============================================================================
@@ -299,14 +282,7 @@ export const AUDIO_EFFECTS = {
 
   /** Reverb settings */
   REVERB: {
-    DEFAULT_DURATION_MS: 500,
     DECAY_RATE: 2, // Exponential decay factor
-  },
-
-  /** Speed adjustment ranges */
-  SPEED: {
-    MIN_MULTIPLIER: 0.5,
-    MAX_MULTIPLIER: 2.0,
   },
 
   /** 8D audio settings */
@@ -341,47 +317,6 @@ export const AUDIO_EFFECTS = {
     ],
   },
 } as const;
-
-/**
- * Underwater muffle cutoff (Hz) for a given amount (0..1). The sweep is exponential
- * so the perceived "submerging" is even across the slider: 0 → transparent (MAX),
- * 1 → deep muffle (MIN). Shared by the offline render and the live playback graph.
- */
-export function underwaterCutoffHz(amount: number): number {
-  const a = Math.max(0, Math.min(1, amount));
-  const { UNDERWATER_CUTOFF_MAX_HZ: max, UNDERWATER_CUTOFF_MIN_HZ: min } = AUDIO_EFFECTS.BASS_BOOST;
-  return max * Math.pow(min / max, a);
-}
-
-/**
- * Reverb makeup gain for a given amount (0..1). The wet/dry crossfade
- * (`dry = 1 - 0.5·amount`) pulls the direct signal down up to -6 dB while the
- * decorrelated wet tail only partly fills it back in, so the mix gets quieter as
- * reverb rises. Because dry and wet are decorrelated their powers add, giving an
- * exact compensation: out / sqrt((1-0.5a)² + k·a²), where k ≈ 0.0525 is the
- * measured power the normalized convolver returns relative to the input. Derived
- * by measuring integrated loudness (BS.1770); residual is within ±0.08 dB and the
- * value is content-independent. Restoring loudness adds no clipping since reverb
- * lowers the crest factor. Shared by the offline render and the live graph.
- */
-export function reverbMakeupGain(amount: number): number {
-  const a = Math.max(0, Math.min(1, amount));
-  return 1 / Math.sqrt((1 - 0.5 * a) ** 2 + 0.0525 * a * a);
-}
-
-/**
- * Bass-boost output trim for a given intensity (0..1). The +18 dB low shelf adds
- * level and eats headroom, so the output is scaled back as the boost grows. The
- * loudness gain accelerates (a shelf is dB-linear in intensity), so the trim is
- * quadratic rather than linear. The 0.4 coefficient is a content-centered
- * compromise measured across a bass-heavy track and pink noise (BS.1770): it keeps
- * neutral material within ±1 dB and caps a worst-case full boost at ~+1.6 dB
- * instead of the +3.5 dB the previous linear 1-0.25·i left. Shared by both engines.
- */
-export function bassBoostTrimGain(intensity: number): number {
-  const i = Math.max(0, Math.min(1, intensity));
-  return 1 - 0.4 * i * i;
-}
 
 // ============================================================================
 // UI EFFECT CONTROL DEFAULTS
@@ -481,14 +416,6 @@ export const AUDIO_SIGNAL = {
 
   /** WAV file format constants */
   WAV_FORMAT: {
-    /** "RIFF" chunk descriptor */
-    RIFF_ID: 0x46464952,
-    /** "WAVE" format */
-    WAVE_ID: 0x45564157,
-    /** "fmt " sub-chunk */
-    FMT_ID: 0x20746d66,
-    /** "data" sub-chunk */
-    DATA_ID: 0x61746164,
     /** WAV header size in bytes */
     HEADER_SIZE: 44,
     /** PCM format code */
@@ -499,23 +426,3 @@ export const AUDIO_SIGNAL = {
     BITS_PER_SAMPLE: 16,
   },
 } as const;
-
-// ============================================================================
-// TYPE EXPORTS
-// ============================================================================
-
-/** Valid audio file extensions */
-export type AudioFileExtension =
-  | typeof FILE_FORMATS.EXTENSIONS.WAV[number]
-  | typeof FILE_FORMATS.EXTENSIONS.MP3[number]
-  | typeof FILE_FORMATS.EXTENSIONS.AIFF[number]
-  | typeof FILE_FORMATS.EXTENSIONS.FLAC[number]
-  | typeof FILE_FORMATS.EXTENSIONS.WEBM[number]
-  | typeof FILE_FORMATS.EXTENSIONS.OGG[number]
-  | typeof FILE_FORMATS.EXTENSIONS.M4A[number];
-
-/** Valid MIME types for MediaRecorder */
-export type MediaRecorderMimeType = typeof MEDIA_RECORDER_FORMATS.POSSIBLE_MIME_TYPES[number];
-
-/** Valid bit depths */
-export type BitDepth = typeof BIT_DEPTH.COMMON[number];

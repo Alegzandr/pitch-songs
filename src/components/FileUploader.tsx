@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { AuroraOrb } from './AuroraOrb';
 import { FILE_FORMATS } from '../constants';
 
 interface FileUploaderProps {
@@ -11,7 +12,9 @@ interface FileUploaderProps {
   hasFile?: boolean;
 }
 
-export function FileUploader({ onFileSelect, isLoading, hasFile }: FileUploaderProps) {
+// Memoised: all three props are stable between interactions (the callback comes
+// from a useCallback in App), so it only re-renders when they actually change.
+export const FileUploader = memo(function FileUploader({ onFileSelect, isLoading, hasFile }: FileUploaderProps) {
   const { t } = useTranslation();
   const [isDragging, setIsDragging] = useState(false);
   // Opening the native file picker forces the browser out of fullscreen. On
@@ -156,31 +159,19 @@ export function FileUploader({ onFileSelect, isLoading, hasFile }: FileUploaderP
             aria-hidden="true"
           />
         )}
-        <div className="relative mb-6 grid place-items-center" aria-hidden="true">
-          {/* Reverberation echoes - the brand's reverb motif (the mark's echo
-              arcs, the play orb's pulse), breathing softly behind the well. */}
-          <span className="upload-echo absolute h-[4.75rem] w-[4.75rem] rounded-full border border-[rgba(var(--aurora-violet),0.4)]" />
-          <span
-            className="upload-echo absolute h-[6.25rem] w-[6.25rem] rounded-full border border-[rgba(var(--aurora-pink),0.3)]"
-            style={{ animationDelay: '1.6s' }}
-          />
-          {/* Aurora as a stroke around a dark glass well, not a solid fill: it
-              reads as the brand without competing with the play orb, and steps
-              away from the gradient-square upload cliché. */}
-          <span
-            className={cn(
-              'relative h-16 w-16 rounded-full p-[2px] transition-transform duration-300 group-hover:scale-105',
-              'bg-[linear-gradient(135deg,rgb(var(--aurora-violet)),rgb(var(--aurora-pink))_55%,rgb(var(--aurora-cyan)))]',
-              isDragging
-                ? 'scale-105 shadow-[0_0_0_4px_rgba(var(--aurora-pink),0.18),0_22px_50px_-20px_rgba(var(--aurora-pink),0.9)]'
-                : 'shadow-[0_18px_44px_-22px_rgba(var(--aurora-pink),0.75)]'
-            )}
-          >
-            <span className="flex h-full w-full items-center justify-center rounded-full bg-[rgb(var(--color-surface))]">
-              <Upload className="h-6 w-6 text-[rgb(var(--aurora-violet))] transition-transform duration-300 group-hover:-translate-y-0.5" />
-            </span>
-          </span>
-        </div>
+        <AuroraOrb
+          withEcho
+          echoWrapperClassName="mb-6"
+          className={cn(
+            'relative transition-transform duration-300 group-hover:scale-105',
+            isDragging
+              ? 'scale-105 shadow-[0_0_0_4px_rgba(var(--aurora-pink),0.18),0_22px_50px_-20px_rgba(var(--aurora-pink),0.9)]'
+              : 'shadow-[0_18px_44px_-22px_rgba(var(--aurora-pink),0.75)]'
+          )}
+          icon={
+            <Upload className="h-6 w-6 text-[rgb(var(--aurora-violet))] transition-transform duration-300 group-hover:-translate-y-0.5" />
+          }
+        />
         <p className="text-lg sm:text-xl font-semibold text-[rgb(var(--color-text))]">
           {t('upload.dragDrop')}
         </p>
@@ -196,4 +187,4 @@ export function FileUploader({ onFileSelect, isLoading, hasFile }: FileUploaderP
       </label>
     </div>
   );
-}
+});

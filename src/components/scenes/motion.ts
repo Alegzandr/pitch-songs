@@ -1,3 +1,14 @@
+/** One-shot read of the user's reduced-motion preference (false where matchMedia
+ *  is unavailable, e.g. jsdom). For a live-updating value, subscribe to the media
+ *  query instead (see MarqueeText). */
+export function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
 /**
  * Should the ambient backdrop animate? Desktop goes all out (live WebGL / canvas
  * scene); mobile and touch devices get a still frame to spare the battery, and
@@ -7,7 +18,6 @@
  */
 export function animatedBackdropAllowed(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const desktop = window.matchMedia('(min-width: 768px) and (pointer: fine)').matches;
-  return !reduce && desktop;
+  return !prefersReducedMotion() && desktop;
 }

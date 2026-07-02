@@ -1,13 +1,8 @@
-import { AUDIO_EFFECTS, AUDIO_SIGNAL, underwaterCutoffHz, reverbMakeupGain, bassBoostTrimGain } from '../constants';
-import { createDecayingNoiseImpulse } from './impulse';
-
-// Offline impulse-response cache. The IRs are pure noise+decay buffers that only
-// depend on (sampleRate, amount), and AudioBuffers are context-agnostic, so we can
-// reuse them across the per-export OfflineAudioContexts instead of regenerating
-// hundreds of thousands of Math.random samples every export. This also makes
-// successive exports of the same settings deterministic.
-let cachedOfflineReverb: { key: string; buffer: AudioBuffer } | null = null;
-let cachedOffline8DBed: { sampleRate: number; buffer: AudioBuffer } | null = null;
+import { AUDIO_EFFECTS, AUDIO_SIGNAL } from '../constants';
+import { underwaterCutoffHz, reverbMakeupGain, bassBoostTrimGain } from './dsp';
+import { getDecayingNoiseImpulse, getEightDBedImpulse } from './impulse';
+import { BinaryWriter } from './binary';
+import { interleaveToInt16 } from './pcm';
 
 export interface AudioProcessingOptions {
   speedMultiplier: number;
@@ -84,9 +79,12 @@ export class AudioProcessor {
     // Add reverb if needed
     if (reverbAmount > 0) {
       const convolver = offlineContext.createConvolver();
-      convolver.buffer = await this.createReverbImpulse(
+      // Tail length and decay both scale with the amount, so more reverb also
+      // means a longer, slower tail.
+      convolver.buffer = getDecayingNoiseImpulse(
         offlineContext,
-        reverbAmount
+        1 + reverbAmount * AUDIO_EFFECTS.REVERB.DECAY_RATE,
+        reverbAmount,
       );
 
       const dry = offlineContext.createGain();
@@ -146,7 +144,7 @@ export class AudioProcessor {
     const panner = context.createStereoPanner();
 
     const convolver = context.createConvolver();
-    convolver.buffer = this.create8DReverbImpulse(context);
+    convolver.buffer = getEightDBedImpulse(context);
     const dryGain = context.createGain();
     const wetGain = context.createGain();
     dryGain.gain.value = AUDIO_SIGNAL.EIGHT_D_MIX.DRY_GAIN;
@@ -175,21 +173,6 @@ export class AudioProcessor {
     }
 
     return { input: inputGain, output: outputGain };
-  }
-
-  /** Short, stereo-widened reverb tail for the offline 8D spatial effect. */
-  private create8DReverbImpulse(context: OfflineAudioContext): AudioBuffer {
-    if (cachedOffline8DBed && cachedOffline8DBed.sampleRate === context.sampleRate) {
-      return cachedOffline8DBed.buffer;
-    }
-    const buffer = createDecayingNoiseImpulse(
-      context,
-      AUDIO_EFFECTS.REVERB.DEFAULT_DURATION_MS / 1000,
-      0.1,
-      [AUDIO_SIGNAL.EIGHT_D_MIX.STEREO_VARIATION_LEFT, AUDIO_SIGNAL.EIGHT_D_MIX.STEREO_VARIATION_RIGHT],
-    );
-    cachedOffline8DBed = { sampleRate: context.sampleRate, buffer };
-    return buffer;
   }
 
   /** Bass boost: highpass (cut rumble) → lowshelf (boost) → peaking (de-mud) →
@@ -255,81 +238,35 @@ export class AudioProcessor {
     return { input: inputGain, output: outputGain };
   }
 
-  /** Room-reverb impulse whose tail length and decay both scale with `amount` (0–1).
-   *  Keyed on BOTH sampleRate and amount so a re-export at a different reverb amount
-   *  regenerates the correct tail instead of reusing the previous one. */
-  private createReverbImpulse(context: OfflineAudioContext, amount: number): AudioBuffer {
-    const key = `${context.sampleRate}:${amount}`;
-    if (cachedOfflineReverb && cachedOfflineReverb.key === key) {
-      return cachedOfflineReverb.buffer;
-    }
-    const buffer = createDecayingNoiseImpulse(context, 1 + amount * AUDIO_EFFECTS.REVERB.DECAY_RATE, amount);
-    cachedOfflineReverb = { key, buffer };
-    return buffer;
-  }
-
-  /**
-   * Convert an AudioBuffer to WAV format
-   *
-   * Creates a standard WAV file with 16-bit PCM audio data.
-   *
-   * @param audioBuffer - The AudioBuffer to convert
-   * @returns Promise that resolves to a Blob containing the WAV file
-   */
+  /** Convert an AudioBuffer to a standard 16-bit PCM WAV file. */
   async audioBufferToWav(audioBuffer: AudioBuffer): Promise<Blob> {
+    const { HEADER_SIZE, PCM_FORMAT, FMT_CHUNK_SIZE, BITS_PER_SAMPLE } = AUDIO_SIGNAL.WAV_FORMAT;
     const numberOfChannels = audioBuffer.numberOfChannels;
-    const length = audioBuffer.length * numberOfChannels * 2;
-    const buffer = new ArrayBuffer(44 + length);
-    const view = new DataView(buffer);
-    const channels: Float32Array[] = [];
-    let offset = 0;
-    let pos = 0;
+    const bytesPerFrame = numberOfChannels * 2;
+    const dataSize = audioBuffer.length * bytesPerFrame;
 
-    // Write WAV header
-    const setUint16 = (data: number) => {
-      view.setUint16(pos, data, true);
-      pos += 2;
-    };
+    const buffer = new ArrayBuffer(HEADER_SIZE + dataSize);
+    const writer = new BinaryWriter(buffer, true);
 
-    const setUint32 = (data: number) => {
-      view.setUint32(pos, data, true);
-      pos += 4;
-    };
+    writer.ascii('RIFF');
+    writer.u32(HEADER_SIZE - 8 + dataSize);
+    writer.ascii('WAVE');
 
-    // "RIFF" chunk descriptor
-    setUint32(AUDIO_SIGNAL.WAV_FORMAT.RIFF_ID);
-    setUint32(36 + length);
-    setUint32(AUDIO_SIGNAL.WAV_FORMAT.WAVE_ID);
+    writer.ascii('fmt ');
+    writer.u32(FMT_CHUNK_SIZE);
+    writer.u16(PCM_FORMAT);
+    writer.u16(numberOfChannels);
+    writer.u32(audioBuffer.sampleRate);
+    writer.u32(audioBuffer.sampleRate * bytesPerFrame);
+    writer.u16(bytesPerFrame);
+    writer.u16(BITS_PER_SAMPLE);
 
-    // "fmt " sub-chunk
-    setUint32(AUDIO_SIGNAL.WAV_FORMAT.FMT_ID);
-    setUint32(AUDIO_SIGNAL.WAV_FORMAT.FMT_CHUNK_SIZE);
-    setUint16(AUDIO_SIGNAL.WAV_FORMAT.PCM_FORMAT);
-    setUint16(numberOfChannels);
-    setUint32(audioBuffer.sampleRate);
-    setUint32(audioBuffer.sampleRate * numberOfChannels * 2);
-    setUint16(numberOfChannels * 2);
-    setUint16(AUDIO_SIGNAL.WAV_FORMAT.BITS_PER_SAMPLE);
+    writer.ascii('data');
+    writer.u32(dataSize);
 
-    // "data" sub-chunk
-    setUint32(AUDIO_SIGNAL.WAV_FORMAT.DATA_ID);
-    setUint32(length);
-
-    // Write interleaved data
-    for (let i = 0; i < numberOfChannels; i++) {
-      channels.push(audioBuffer.getChannelData(i));
-    }
-
-    while (pos < buffer.byteLength) {
-      for (let i = 0; i < numberOfChannels; i++) {
-        let sample = Math.max(-1, Math.min(1, channels[i][offset]));
-        sample = sample < 0
-          ? sample * AUDIO_SIGNAL.PCM.INT16_MIN
-          : sample * AUDIO_SIGNAL.PCM.INT16_MAX;
-        view.setInt16(pos, sample, true);
-        pos += 2;
-      }
-      offset++;
+    const pcm = interleaveToInt16(audioBuffer);
+    for (let i = 0; i < pcm.length; i++) {
+      writer.i16(pcm[i]);
     }
 
     return new Blob([buffer], { type: 'audio/wav' });

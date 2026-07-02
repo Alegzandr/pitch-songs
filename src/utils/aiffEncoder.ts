@@ -3,91 +3,51 @@
  * AIFF is similar to WAV but uses big-endian byte order (Apple's format)
  */
 
+import { BinaryWriter } from './binary';
+import { interleaveToInt16 } from './pcm';
+
+const COMM_CHUNK_BYTES = 26;
+const SSND_HEADER_BYTES = 16;
+
 export async function audioBufferToAiff(audioBuffer: AudioBuffer): Promise<Blob> {
   const numberOfChannels = audioBuffer.numberOfChannels;
-  const sampleRate = audioBuffer.sampleRate;
-  const bitsPerSample = 16;
-  const bytesPerSample = bitsPerSample / 8;
-
   const numFrames = audioBuffer.length;
-  const bytesPerFrame = numberOfChannels * bytesPerSample;
-  const dataSize = numFrames * bytesPerFrame;
+  const dataSize = numFrames * numberOfChannels * 2;
 
-  // AIFF file structure:
-  // FORM chunk (12 bytes)
-  // COMM chunk (26 bytes)
-  // SSND chunk (16 bytes + data)
-  const formChunkSize = 4 + 26 + 16 + dataSize; // Excluding 'FORM' and size itself
-  const buffer = new ArrayBuffer(12 + 26 + 16 + dataSize);
-  const view = new DataView(buffer);
+  // FORM container (12 bytes) + COMM chunk + SSND chunk header + samples.
+  const formChunkSize = 4 + COMM_CHUNK_BYTES + SSND_HEADER_BYTES + dataSize;
+  const buffer = new ArrayBuffer(12 + COMM_CHUNK_BYTES + SSND_HEADER_BYTES + dataSize);
+  const writer = new BinaryWriter(buffer, false);
 
-  let pos = 0;
-
-  // Helper functions for big-endian writing
-  const writeString = (str: string) => {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(pos++, str.charCodeAt(i));
-    }
-  };
-
-  const writeUint32BE = (value: number) => {
-    view.setUint32(pos, value, false); // false = big-endian
-    pos += 4;
-  };
-
-  const writeUint16BE = (value: number) => {
-    view.setUint16(pos, value, false);
-    pos += 2;
-  };
-
-  const writeInt16BE = (value: number) => {
-    view.setInt16(pos, value, false);
-    pos += 2;
-  };
-
-  // Write 80-bit extended precision sample rate
-  const writeExtended = (value: number) => {
-    // Simplified 80-bit extended precision conversion
-    // For standard sample rates, we can use lookup table
-    const exponent = 0x400e; // Common exponent for audio sample rates
+  // Sample rate is stored as 80-bit extended precision; this simplified encoding
+  // covers every standard audio rate.
+  const writeExtendedSampleRate = (value: number) => {
+    const exponent = 0x400e;
     const mantissa = Math.floor(value * Math.pow(2, 32 - 15));
-
-    writeUint16BE(exponent);
-    writeUint32BE(mantissa);
-    writeUint32BE(0); // Lower 32 bits
+    writer.u16(exponent);
+    writer.u32(mantissa);
+    writer.u32(0); // lower 32 bits of the mantissa
   };
 
-  // FORM chunk
-  writeString('FORM');
-  writeUint32BE(formChunkSize);
-  writeString('AIFF');
+  writer.ascii('FORM');
+  writer.u32(formChunkSize);
+  writer.ascii('AIFF');
 
-  // Common (COMM) chunk
-  writeString('COMM');
-  writeUint32BE(18); // COMM chunk size (18 bytes)
-  writeUint16BE(numberOfChannels);
-  writeUint32BE(numFrames);
-  writeUint16BE(bitsPerSample);
-  writeExtended(sampleRate);
+  writer.ascii('COMM');
+  writer.u32(18); // COMM payload size
+  writer.u16(numberOfChannels);
+  writer.u32(numFrames);
+  writer.u16(16); // bits per sample
+  writeExtendedSampleRate(audioBuffer.sampleRate);
 
-  // Sound Data (SSND) chunk
-  writeString('SSND');
-  writeUint32BE(dataSize + 8); // Data size + offset + blockSize
-  writeUint32BE(0); // offset
-  writeUint32BE(0); // blockSize
+  writer.ascii('SSND');
+  writer.u32(dataSize + 8); // data + offset + blockSize fields
+  writer.u32(0); // offset
+  writer.u32(0); // blockSize
 
-  // Write audio data (interleaved, big-endian)
-  const channels: Float32Array[] = [];
-  for (let i = 0; i < numberOfChannels; i++) {
-    channels.push(audioBuffer.getChannelData(i));
-  }
-
-  for (let i = 0; i < numFrames; i++) {
-    for (let channel = 0; channel < numberOfChannels; channel++) {
-      const sample = Math.max(-1, Math.min(1, channels[channel][i]));
-      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-      writeInt16BE(intSample);
-    }
+  const pcm = interleaveToInt16(audioBuffer);
+  for (let i = 0; i < pcm.length; i++) {
+    writer.i16(pcm[i]);
   }
 
   return new Blob([buffer], { type: 'audio/aiff' });

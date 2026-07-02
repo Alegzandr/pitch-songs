@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Settings, Check, RotateCcw } from 'lucide-react';
@@ -40,7 +40,9 @@ interface SettingsMenuProps {
   trigger?: ReactNode;
 }
 
-export function SettingsMenu({ trigger }: SettingsMenuProps = {}) {
+// Memoised: it sits in the chrome next to per-interaction App state, and its
+// only prop (`trigger`) is stable, so it never needs to follow App's renders.
+export const SettingsMenu = memo(function SettingsMenu({ trigger }: SettingsMenuProps = {}) {
   const { i18n, t } = useTranslation();
   const { gains, presetName, setPreset, setBandGain, reset } = useEq();
   const [open, setOpen] = useState(false);
@@ -197,4 +199,4 @@ export function SettingsMenu({ trigger }: SettingsMenuProps = {}) {
       </DialogContent>
     </Dialog>
   );
-}
+});

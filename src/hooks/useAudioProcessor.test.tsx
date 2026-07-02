@@ -182,7 +182,7 @@ describe('useAudioProcessor', () => {
     expect(mockAudioProcessor.processAudio).toHaveBeenCalled();
     expect(result.current.processedBuffer).toBe(mockAudioBuffer);
     expect(result.current.duration).toBeCloseTo(mockAudioBuffer.length / mockAudioBuffer.sampleRate);
-    expect(result.current.playbackTime).toBe(0);
+    expect(result.current.playbackClock.get()).toBe(0);
     expect(result.current.state.progress).toBe(100);
     expect(result.current.state.isProcessing).toBe(false);
   });
@@ -233,7 +233,7 @@ describe('useAudioProcessor', () => {
     expect(source.start).toHaveBeenCalledWith(0, 0);
     expect(gain.gain.value).toBeCloseTo(0.7);
     expect(result.current.state.isPlaying).toBe(true);
-    expect(result.current.playbackTime).toBe(0);
+    expect(result.current.playbackClock.get()).toBe(0);
 
     act(() => {
       result.current.updateVolume(0.3);
@@ -247,7 +247,7 @@ describe('useAudioProcessor', () => {
 
     expect(source.stop).toHaveBeenCalled();
     expect(result.current.state.isPlaying).toBe(false);
-    expect(result.current.playbackTime).toBeCloseTo(0);
+    expect(result.current.playbackClock.get()).toBeCloseTo(0);
   });
 
   it('swallows stop errors while switching sources', () => {
@@ -410,7 +410,7 @@ describe('useAudioProcessor', () => {
       result.current.seekTo(0.5);
     });
 
-    expect(result.current.playbackTime).toBeCloseTo(0.5);
+    expect(result.current.playbackClock.get()).toBeCloseTo(0.5);
   });
 
   it('restarts playback when seeking during preview', () => {
@@ -446,7 +446,7 @@ describe('useAudioProcessor', () => {
     });
 
     expect(result.current.state.isPlaying).toBe(true);
-    expect(result.current.playbackTime).toBeCloseTo(0.5);
+    expect(result.current.playbackClock.get()).toBeCloseTo(0.5);
   });
 
   // Regression: an inline `getAudioContext` passed to useAudioPlayback used to change
@@ -493,6 +493,6 @@ describe('useAudioProcessor', () => {
     expect(result.current.metadata).toBeNull();
     expect(result.current.state.progress).toBe(0);
     expect(result.current.duration).toBe(0);
-    expect(result.current.playbackTime).toBe(0);
+    expect(result.current.playbackClock.get()).toBe(0);
   });
 });

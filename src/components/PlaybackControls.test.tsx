@@ -20,7 +20,7 @@ describe('PlaybackControls', () => {
     hasAudio: true,
     canExport: true,
     volume: 0.5,
-    currentTime: 0,
+    clock: { get: () => 0, subscribe: () => () => {} },
     duration: 10,
     getAnalyser: () => null,
   };

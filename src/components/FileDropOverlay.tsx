@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
+import { AuroraOrb } from './AuroraOrb';
 import { FILE_FORMATS } from '../constants';
 
 interface FileDropOverlayProps {
@@ -93,11 +94,10 @@ export const FileDropOverlay = memo(function FileDropOverlay({ onFileSelect, dis
     >
       <div className="absolute inset-0 bg-[rgba(var(--color-background),0.72)] backdrop-blur-md" />
       <div className="relative flex flex-col items-center gap-5 rounded-[28px] border-2 border-dashed border-[rgb(var(--color-accent))] bg-[rgba(var(--color-surface),0.6)] px-12 py-14 text-center shadow-[0_30px_80px_-30px_rgba(var(--aurora-pink),0.7)]">
-        <span className="grid h-16 w-16 place-items-center rounded-full p-[2px] bg-[linear-gradient(135deg,rgb(var(--aurora-violet)),rgb(var(--aurora-pink))_55%,rgb(var(--aurora-cyan)))] shadow-[0_0_0_4px_rgba(var(--aurora-pink),0.18)]">
-          <span className="flex h-full w-full items-center justify-center rounded-full bg-[rgb(var(--color-surface))]">
-            <Upload className="h-6 w-6 text-[rgb(var(--aurora-violet))]" aria-hidden="true" />
-          </span>
-        </span>
+        <AuroraOrb
+          className="grid place-items-center shadow-[0_0_0_4px_rgba(var(--aurora-pink),0.18)]"
+          icon={<Upload className="h-6 w-6 text-[rgb(var(--aurora-violet))]" aria-hidden="true" />}
+        />
         <p className="text-xl font-semibold text-[rgb(var(--color-text))]">
           {t('upload.dropToReplace')}
         </p>

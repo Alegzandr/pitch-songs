@@ -32,6 +32,8 @@
  */
 
 import { detectGpuTier } from './scenes/webgl/gpu';
+import { frameDeltaSeconds } from './scenes/frameClock';
+import { createMoodPaletteCache, readEnergyVar } from './scenes/paletteReader';
 
 export interface InstrumentFx {
   /** reverbAmount 0..1 */
@@ -131,8 +133,6 @@ export function createWaveInstrument(
   let hairline: Rgb = { r: 148, g: 163, b: 208 };
   let ambient: Rgb = { r: 56, g: 189, b: 248 };
   let isDark = true;
-  let paletteMood: string | undefined;
-  let paletteRead = false;
 
   const readPalette = () => {
     const style = getComputedStyle(canvas);
@@ -143,28 +143,11 @@ export function createWaveInstrument(
     hairline = pick('--hud-line', hairline);
     ambient = pick('--color-ambient', ambient);
     isDark = document.documentElement.classList.contains('dark');
-    paletteRead = true;
     playedGrad = null;
     unplayedGrad = null;
   };
 
-  const ensurePalette = () => {
-    const root = document.documentElement;
-    const mood = root.dataset.mood;
-    if (!paletteRead || mood !== paletteMood || root.classList.contains('mood-shifting')) {
-      paletteMood = mood;
-      readPalette();
-    }
-  };
-
-  // --- calibrated energies (inline-style reads, published by useAudioReactivity)
-  const rootStyle = document.documentElement.style;
-  const energyVar = (name: string) => {
-    const v = rootStyle.getPropertyValue(name);
-    if (!v) return 0;
-    const n = parseFloat(v);
-    return Number.isNaN(n) ? 0 : n;
-  };
+  const { ensure: ensurePalette } = createMoodPaletteCache(readPalette);
 
   // --- per-bin spectrum ------------------------------------------------------
   let freq: Uint8Array<ArrayBuffer> | null = null;
@@ -328,17 +311,17 @@ export function createWaveInstrument(
     const scrollLeft = frame.scrollLeft;
     // Real frame delta (clamped so a background-tab stall can't teleport the
     // physics), so speed is identical at 60, 120 or 144Hz.
-    const dt = lastNow < 0 ? 1 / 60 : Math.min(0.05, Math.max(0.001, (now - lastNow) / 1000));
+    const dt = frameDeltaSeconds(now, lastNow);
     lastNow = now;
     easeEnvelope(frame.env, reducedMotion || (!isPlaying && shown.length !== frame.env.length), dt);
 
     // A live instrument only while actually animating: reduced motion keeps
     // the ribbons + playhead (state) and drops every decorative energy.
     const live = isPlaying && !reducedMotion;
-    const level = live ? energyVar('--audio-level') : 0;
-    const bass = live ? energyVar('--audio-bass') : 0;
-    const treble = live ? energyVar('--audio-treble') : 0;
-    const onset = live ? energyVar('--audio-pulse') : 0;
+    const level = live ? readEnergyVar('--audio-level') : 0;
+    const bass = live ? readEnergyVar('--audio-bass') : 0;
+    const treble = live ? readEnergyVar('--audio-treble') : 0;
+    const onset = live ? readEnergyVar('--audio-pulse') : 0;
     readSpectrum(live, dt);
 
     const mid = cssH / 2;

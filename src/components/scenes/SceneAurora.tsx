@@ -1,6 +1,8 @@
 import { memo, useEffect, useRef } from 'react';
 import { animatedBackdropAllowed } from './motion';
 import { detectGpuTier } from './webgl/gpu';
+import { IDLE_FRAME_MS, frameDeltaSeconds } from './frameClock';
+import { createMoodPaletteCache, readEnergyVar } from './paletteReader';
 
 /**
  * The living layer of the ambient scene - aurora veils breathing over the
@@ -92,13 +94,6 @@ void main() {
 }
 `;
 
-const energyVar = (style: CSSStyleDeclaration, name: string) => {
-  const v = style.getPropertyValue(name);
-  if (!v) return 0;
-  const n = parseFloat(v);
-  return Number.isNaN(n) ? 0 : n;
-};
-
 const parseTriplet = (value: string, fallback: [number, number, number]): [number, number, number] => {
   const m = value.split(',').map((x) => parseFloat(x));
   if (m.length < 3 || m.some((n) => Number.isNaN(n))) return fallback;
@@ -128,11 +123,28 @@ export const SceneAurora = memo(function SceneAurora() {
 
     type Loc = Record<'res' | 'time' | 'colorA' | 'colorB' | 'bass' | 'mid' | 'treble' | 'level', WebGLUniformLocation | null>;
     let loc: Loc | null = null;
+    // GPU handles kept for explicit deletion: contexts survive unmount (see the
+    // cleanup note below), so without this the program/buffer of every
+    // daybreak↔photo switch would linger until the canvas itself is GC'd.
+    let prog: WebGLProgram | null = null;
+    let buf: WebGLBuffer | null = null;
+
+    const releaseGpuResources = () => {
+      if (prog) {
+        gl.deleteProgram(prog);
+        prog = null;
+      }
+      if (buf) {
+        gl.deleteBuffer(buf);
+        buf = null;
+      }
+    };
 
     // (Re)build the whole pipeline on the current context. Returns false when
     // the context is unusable (lost, compile failure) - the canvas stays hidden.
     const setup = (): boolean => {
       if (gl.isContextLost()) return false;
+      releaseGpuResources(); // context-restore path: drop stale handles first
       const compile = (type: number, src: string) => {
         const sh = gl.createShader(type);
         if (!sh) return null;
@@ -146,17 +158,28 @@ export const SceneAurora = memo(function SceneAurora() {
       };
       const vs = compile(gl.VERTEX_SHADER, VERT);
       const fs = compile(gl.FRAGMENT_SHADER, FRAG);
-      if (!vs || !fs) return false;
-      const prog = gl.createProgram();
+      if (!vs || !fs) {
+        if (vs) gl.deleteShader(vs);
+        if (fs) gl.deleteShader(fs);
+        return false;
+      }
+      prog = gl.createProgram();
       if (!prog) return false;
       gl.attachShader(prog, vs);
       gl.attachShader(prog, fs);
       gl.linkProgram(prog);
-      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return false;
+      // Shaders are owned by the program once linked (pass or fail) - flag them
+      // for deletion now so they free together with it.
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        releaseGpuResources();
+        return false;
+      }
       gl.useProgram(prog);
 
       // One full-screen triangle - no index buffer, no overdraw seams.
-      const buf = gl.createBuffer();
+      buf = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
       const aPos = gl.getAttribLocation(prog, 'aPos');
@@ -183,16 +206,11 @@ export const SceneAurora = memo(function SceneAurora() {
     // getComputedStyle is a style flush, never a steady-state per-frame cost.
     let colorA: [number, number, number] = [1, 0.6, 0.7];
     let colorB: [number, number, number] = [0.3, 0.75, 0.97];
-    let paletteMood: string | undefined;
-    let paletteRead = false;
-    const readPalette = () => {
+    const palette = createMoodPaletteCache(() => {
       const cs = getComputedStyle(canvas);
       colorA = parseTriplet(cs.getPropertyValue('--color-accent').trim(), colorA);
       colorB = parseTriplet(cs.getPropertyValue('--color-ambient').trim(), colorB);
-      paletteRead = true;
-    };
-
-    const rootStyle = document.documentElement.style;
+    });
 
     let raf = 0;
     let disposed = false;
@@ -200,34 +218,42 @@ export const SceneAurora = memo(function SceneAurora() {
     let lastNow = -1;
     let lastIdleDraw = 0;
 
+    // Layout size cached outside the frame loop: reading clientWidth/Height per
+    // frame is a layout query that can force a reflow while styles are churning
+    // (the --audio-* vars invalidate style every frame during playback).
+    let viewW = 0;
+    let viewH = 0;
+    const measure = () => {
+      viewW = canvas.clientWidth;
+      viewH = canvas.clientHeight;
+    };
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    resizeObserver?.observe(canvas);
+
     const frame = (now: number) => {
       if (disposed || !loc) return;
       raf = requestAnimationFrame(frame);
       if (document.hidden) return;
 
-      const level = energyVar(rootStyle, '--audio-level');
+      const level = readEnergyVar('--audio-level');
       // Idle throttle: without music the veils drift slowly - 30fps is plenty.
       const live = level > 0.015;
-      if (!live && now - lastIdleDraw < 33) return;
+      if (!live && now - lastIdleDraw < IDLE_FRAME_MS) return;
       lastIdleDraw = now;
 
-      const dt = lastNow < 0 ? 1 / 60 : Math.min(0.05, Math.max(0.001, (now - lastNow) / 1000));
+      const dt = frameDeltaSeconds(now, lastNow);
       lastNow = now;
 
-      const mid = energyVar(rootStyle, '--audio-mid');
+      const mid = readEnergyVar('--audio-mid');
       // Mids quicken the drift; the clock itself breathes with the music.
       time += dt * (1 + mid * 1.6);
 
-      const root = document.documentElement;
-      const mood = root.dataset.mood;
-      if (!paletteRead || mood !== paletteMood || root.classList.contains('mood-shifting')) {
-        paletteMood = mood;
-        readPalette();
-      }
+      palette.ensure();
 
       // ~40% render scale; the field is cloud-soft so upscaling is invisible.
-      const w = Math.max(2, Math.round(canvas.clientWidth * 0.4));
-      const h = Math.max(2, Math.round(canvas.clientHeight * 0.4));
+      const w = Math.max(2, Math.round(viewW * 0.4));
+      const h = Math.max(2, Math.round(viewH * 0.4));
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
@@ -238,9 +264,9 @@ export const SceneAurora = memo(function SceneAurora() {
       gl.uniform1f(loc.time, time);
       gl.uniform3f(loc.colorA, colorA[0], colorA[1], colorA[2]);
       gl.uniform3f(loc.colorB, colorB[0], colorB[1], colorB[2]);
-      gl.uniform1f(loc.bass, energyVar(rootStyle, '--audio-bass'));
+      gl.uniform1f(loc.bass, readEnergyVar('--audio-bass'));
       gl.uniform1f(loc.mid, mid);
-      gl.uniform1f(loc.treble, energyVar(rootStyle, '--audio-treble'));
+      gl.uniform1f(loc.treble, readEnergyVar('--audio-treble'));
       gl.uniform1f(loc.level, level);
 
       gl.clearColor(0, 0, 0, 0);
@@ -256,6 +282,9 @@ export const SceneAurora = memo(function SceneAurora() {
       if (disposed) return;
       if (!setup()) return; // stays hidden - the CSS haze is the experience
       canvas.style.display = '';
+      // One direct read now that the canvas is displayed (a hidden canvas
+      // measures 0×0); the ResizeObserver keeps it fresh from here on.
+      measure();
       lastNow = -1;
       raf = requestAnimationFrame(frame);
     };
@@ -281,8 +310,12 @@ export const SceneAurora = memo(function SceneAurora() {
     return () => {
       disposed = true;
       stop();
+      resizeObserver?.disconnect();
       canvas.removeEventListener('webglcontextlost', onLost);
       canvas.removeEventListener('webglcontextrestored', onRestored);
+      // Free the GPU-side objects eagerly; a daybreak↔photo switch would
+      // otherwise leave each unmounted canvas's program/buffer alive until GC.
+      releaseGpuResources();
       // Deliberately NO loseContext here: killing the context in cleanup turns
       // the canvas into a dead white surface when React StrictMode re-runs the
       // effect on the same node. The context is reclaimed with the canvas when

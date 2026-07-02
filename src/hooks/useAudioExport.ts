@@ -13,7 +13,6 @@ interface UseAudioExportParams {
   originalFile: File | null;
   metadata: AudioMetadata | null;
   getBufferDuration: (buffer: AudioBuffer | null) => number;
-  effectLabel?: string;
   onError?: (message: string | null) => void;
 }
 
@@ -37,7 +36,6 @@ export function useAudioExport({
   originalFile,
   metadata,
   getBufferDuration,
-  effectLabel,
   onError,
 }: UseAudioExportParams) {
   const [state, setState] = useState<ExportState>({
@@ -55,8 +53,7 @@ export function useAudioExport({
   const exportProcessedAudio = useCallback(async (arg?: ExportArg) => {
     setError(null);
     const filename = typeof arg === 'string' ? arg : arg?.filename;
-    const explicitEffectLabel = typeof arg === 'object' ? arg?.effectLabel : undefined;
-    const label = explicitEffectLabel ?? effectLabel;
+    const label = typeof arg === 'object' ? arg?.effectLabel : undefined;
     const buffer = getBuffer();
     if (!buffer) {
       const message = ERROR_MESSAGES.NO_AUDIO_TO_EXPORT;
@@ -101,7 +98,7 @@ export function useAudioExport({
       }
       throw error instanceof Error ? error : new Error(message);
     }
-  }, [effectLabel, getBuffer, getBufferDuration, metadata, onError, originalFile, setError]);
+  }, [getBuffer, getBufferDuration, metadata, onError, originalFile, setError]);
 
   const resetExport = useCallback(() => {
     setState({ isExporting: false, error: null });
