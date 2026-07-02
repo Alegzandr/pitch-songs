@@ -2,6 +2,8 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { audioProcessor } from '../utils/audioProcessor';
 import type { AudioProcessingOptions } from '../utils/audioProcessor';
 import { NEUTRAL_OPTIONS } from '../utils/effectGraph';
+import { detectTempo, type TempoEstimate } from '../utils/tempo';
+import { loadBeatSamples } from '../utils/beatSamples';
 import { useAudioFile } from './useAudioFile';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useAudioExport } from './useAudioExport';
@@ -26,6 +28,13 @@ export function useAudioProcessor() {
   const [error, setError] = useState<string | null>(null);
   const optionsRef = useRef<AudioProcessingOptions>(NEUTRAL_OPTIONS);
   const renderedRef = useRef<AudioBuffer | null>(null);
+  // Detected tempo for the Nightcore beat grid. There is no BPM in the source files,
+  // so it's measured once per track on load (see detectTempo) and injected into every
+  // effect update, so both live playback and the export share one grid. Kept in a ref
+  // for the synchronous injection below and mirrored to state for the UI readout.
+  const tempoRef = useRef<TempoEstimate | null>(null);
+  const [detectedBpm, setDetectedBpm] = useState<number | null>(null);
+  const [detectedMeter, setDetectedMeter] = useState<TempoEstimate['beatsPerBar'] | null>(null);
 
   const {
     state: fileState,
@@ -97,14 +106,47 @@ export function useAudioProcessor() {
     const buffer = await loadFile(file);
     const nextBuffer = buffer || audioProcessor.getAudioBuffer();
     attachBuffer(nextBuffer, { resetPosition: true });
+    // Warm the Nightcore sample cache now (fire-and-forget) so enabling the beats - or
+    // pressing play with them already on - never races a cold fetch/decode and drops
+    // the first hits. The cache is app-wide, so this runs once; a failure is the
+    // scheduler's silent-bed concern, not this load's.
+    void loadBeatSamples(audioProcessor.getAudioContext()).catch(() => {});
+    // Measure the track's tempo once so the Nightcore grid has a BPM to lock to.
+    // Cheap (a few ms) and cached per buffer; failure just leaves the fallback tempo.
+    if (nextBuffer) {
+      try {
+        const tempo = detectTempo(nextBuffer);
+        tempoRef.current = tempo;
+        setDetectedBpm(Math.round(tempo.bpm));
+        setDetectedMeter(tempo.beatsPerBar);
+      } catch {
+        tempoRef.current = null;
+        setDetectedBpm(null);
+        setDetectedMeter(null);
+      }
+    } else {
+      tempoRef.current = null;
+      setDetectedBpm(null);
+      setDetectedMeter(null);
+    }
     return buffer;
   }, [attachBuffer, loadFile, stopAudio]);
 
   // Apply effects in real time and remember them for the next play and for export.
+  // The per-track tempo is folded in here (not in the UI) so EffectControls stays
+  // tempo-agnostic and both the live graph and the offline export see one grid.
   const setEffects = useCallback((options: AudioProcessingOptions) => {
-    optionsRef.current = options;
+    const withTempo: AudioProcessingOptions = tempoRef.current
+      ? {
+          ...options,
+          bpm: tempoRef.current.bpm,
+          beatOffsetSec: tempoRef.current.beatOffsetSec,
+          beatsPerBar: tempoRef.current.beatsPerBar,
+        }
+      : options;
+    optionsRef.current = withTempo;
     renderedRef.current = null; // settings changed; any cached render is stale
-    setPlaybackEffects(options);
+    setPlaybackEffects(withTempo);
   }, [setPlaybackEffects]);
 
   // Kept for the offline pipeline/tests; the UI no longer bakes a processed track.
@@ -143,6 +185,9 @@ export function useAudioProcessor() {
     resetExport();
     optionsRef.current = NEUTRAL_OPTIONS;
     renderedRef.current = null;
+    tempoRef.current = null;
+    setDetectedBpm(null);
+    setDetectedMeter(null);
     setError(null);
   }, [resetExport, resetFile, resetPlayback, stopAudio]);
 
@@ -163,6 +208,10 @@ export function useAudioProcessor() {
     duration: playbackState.duration,
     volume: playbackState.volume,
     repeat: playbackState.repeat,
+    /** Auto-detected tempo (rounded BPM) of the loaded track, or null. */
+    detectedBpm,
+    /** Auto-detected meter (3 or 4 beats per bar) of the loaded track, or null. */
+    detectedMeter,
     metadata,
     loadAudioFile,
     processAudio,

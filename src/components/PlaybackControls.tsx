@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Pause, Download, Repeat } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { TransportTimeline } from './TransportTimeline';
 import { VolumeControl } from './VolumeControl';
 import { SpectrumMeter } from './SpectrumMeter';
@@ -109,21 +110,25 @@ export const PlaybackControls = memo(function PlaybackControls({
 
         {/* Repeat - loops the track from the top when it ends. A quiet toggle next to
             the orb: ghost when off, accent-tinted with a live glyph when armed. */}
-        <Button
-          variant={repeat ? 'accent' : 'ghost'}
-          size="icon"
-          onClick={onToggleRepeat}
-          disabled={disabled || !hasAudio}
-          aria-pressed={repeat}
-          aria-label={t('playback.repeat')}
-          title={t('playback.repeat')}
-          className="shrink-0 sm:order-1"
-        >
-          <Repeat
-            className={`w-[18px] h-[18px] ${repeat ? 'text-[rgb(var(--color-accent))]' : ''}`}
-            aria-hidden="true"
-          />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={repeat ? 'accent' : 'ghost'}
+              size="icon"
+              onClick={onToggleRepeat}
+              disabled={disabled || !hasAudio}
+              aria-pressed={repeat}
+              aria-label={t('playback.repeat')}
+              className="shrink-0 sm:order-1"
+            >
+              <Repeat
+                className={`w-[18px] h-[18px] ${repeat ? 'text-[rgb(var(--color-accent))]' : ''}`}
+                aria-hidden="true"
+              />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t('playback.repeat')}</TooltipContent>
+        </Tooltip>
 
         {/* Live spectrum - a small instrument that makes the bar feel alive.
             Hidden on narrow screens where space is tight. */}

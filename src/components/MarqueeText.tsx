@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 // Calm, constant scroll speed (px/s) so long and short titles travel at the same
 // pace, and the gap between the two looping copies.
@@ -16,8 +17,9 @@ interface MarqueeTextProps {
  * Single-line text that gently scrolls (a seamless marquee) only when it would
  * otherwise be clipped; text that fits sits static. The loop is seamless (two
  * copies + a gap), the speed is constant in px/s whatever the length, and it
- * falls back to a static ellipsis under prefers-reduced-motion. The full text is
- * always available via the title attribute and to assistive tech.
+ * falls back to a static ellipsis under prefers-reduced-motion. When the text is
+ * clipped, hovering reveals the full string through the shared (glass) Tooltip; it
+ * also stays available to assistive tech via the rendered copy.
  */
 export const MarqueeText = memo(function MarqueeText({ text, className }: MarqueeTextProps) {
   const containerRef = useRef<HTMLSpanElement>(null);
@@ -63,22 +65,29 @@ export const MarqueeText = memo(function MarqueeText({ text, className }: Marque
   const duration = (textWidth + GAP_PX) / SPEED_PX_PER_S;
 
   return (
-    <span ref={containerRef} className={cn('marquee', animate && 'marquee-fade')} title={text}>
-      {/* Off-layout measurer - intrinsic text width, independent of scroll state. */}
-      <span ref={measureRef} className={cn('marquee-measure', className)} aria-hidden="true">
-        {text}
-      </span>
-
-      {animate ? (
-        <span className="marquee-track" style={{ animationDuration: `${duration}s` }}>
-          <span className={cn('marquee-item', className)}>{text}</span>
-          <span className={cn('marquee-item', className)} aria-hidden="true">
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span ref={containerRef} className={cn('marquee', animate && 'marquee-fade')}>
+          {/* Off-layout measurer - intrinsic text width, independent of scroll state. */}
+          <span ref={measureRef} className={cn('marquee-measure', className)} aria-hidden="true">
             {text}
           </span>
+
+          {animate ? (
+            <span className="marquee-track" style={{ animationDuration: `${duration}s` }}>
+              <span className={cn('marquee-item', className)}>{text}</span>
+              <span className={cn('marquee-item', className)} aria-hidden="true">
+                {text}
+              </span>
+            </span>
+          ) : (
+            <span className={cn('block truncate', className)}>{text}</span>
+          )}
         </span>
-      ) : (
-        <span className={cn('block truncate', className)}>{text}</span>
-      )}
-    </span>
+      </TooltipTrigger>
+      {/* Only offer the tooltip when the title is actually clipped - a fully visible
+          name needs no redundant pill. */}
+      {overflow && <TooltipContent>{text}</TooltipContent>}
+    </Tooltip>
   );
 });

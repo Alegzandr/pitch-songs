@@ -27,7 +27,7 @@ interface Dive {
 }
 
 export const MoodTransition = memo(function MoodTransition() {
-  const { mood } = useMood();
+  const { mood, showBackdrop } = useMood();
   const prevMood = useRef(mood);
   const counter = useRef(0);
   const [dive, setDive] = useState<Dive | null>(null);
@@ -59,7 +59,13 @@ export const MoodTransition = memo(function MoodTransition() {
   }, [mood]);
 
   if (!dive) return null;
-  const outPhoto = SCENE_PHOTO_CLASS[dive.outgoing];
+  // What we're leaving behind: the outgoing photo when the backdrop is on, or the
+  // daybreak wash for the (photo-less) light mood. With the backdrop off on a dark
+  // mood there's nothing to dissolve but the near-black floor the live scene
+  // already shows underneath - so we skip the outgoing world entirely. (Falling
+  // back to `.warp-world-flat` here would flash its light wash: a white blink.)
+  const outPhoto = showBackdrop ? SCENE_PHOTO_CLASS[dive.outgoing] : null;
+  const outLight = dive.outgoing === 'daybreak';
 
   return (
     <>
@@ -67,13 +73,15 @@ export const MoodTransition = memo(function MoodTransition() {
           scales up, blurs and dissolves as we break through it, revealing the new
           environment rising into focus underneath. Isolated so the panels'
           backdrop-filter samples one flat layer while it animates (no flash). */}
-      <div key={`world-${dive.id}`} className="warp-world" aria-hidden="true">
-        {outPhoto ? (
-          <div className={`scene-photo ${outPhoto}`} />
-        ) : (
-          <div className="warp-world-flat" />
-        )}
-      </div>
+      {(outPhoto || outLight) && (
+        <div key={`world-${dive.id}`} className="warp-world" aria-hidden="true">
+          {outPhoto ? (
+            <div className={`scene-photo ${outPhoto}`} />
+          ) : (
+            <div className="warp-world-flat" />
+          )}
+        </div>
+      )}
 
       {/* The luminous swell - a centred bloom in the NEW mood's colour (its tokens
           are already live on :root), cresting over the whole cockpit at the

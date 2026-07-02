@@ -42,6 +42,9 @@
     "underwater": "水下",
     "underwaterSurface": "水面",
     "underwaterDeep": "深",
+    "nightcoreBeats": "Nightcore 鼓点",
+    "nightcoreBeatsHint": "在加速上叠加 4/4 鼓点",
+    "beatVolume": "鼓点音量",
     "apply": "应用效果",
     "processing": "处理中..."
   },
@@ -98,7 +101,9 @@
     "scrub": "浏览时间轴",
     "raw": "原始",
     "fx": "效果",
-    "toggleRemaining": "显示剩余时间"
+    "toggleRemaining": "显示剩余时间",
+    "tempo": "{{bpm}} BPM · {{meter}}",
+    "tempoScaled": "{{bpm}} ({{original}}) BPM · {{meter}}"
   },
   "language": {
     "open": "打开语言选择器",
@@ -143,6 +148,8 @@
     "allMoods": "所有氛围",
     "active": "启用",
     "inactive": "停用",
-    "levels": "电平"
+    "levels": "电平",
+    "backdrop": "背景图片",
+    "backdropHint": "在场景后显示照片"
   }
 }

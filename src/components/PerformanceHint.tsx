@@ -61,7 +61,9 @@ export function PerformanceHint() {
   return (
     <div
       role="status"
-      className={`fixed bottom-4 left-4 z-50 max-w-xs transition-[opacity,transform] duration-500 ease-out ${
+      // bottom-24 clears the sticky transport rail (h-16 content + bow bulge)
+      // so the pill never sits on top of the play orb or the timeline.
+      className={`fixed bottom-24 left-6 z-50 max-w-xs transition-[opacity,transform] duration-500 ease-out ${
         shown ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
       }`}
     >

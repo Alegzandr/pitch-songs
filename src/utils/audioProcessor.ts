@@ -1,8 +1,10 @@
-import { AUDIO_EFFECTS, AUDIO_SIGNAL } from '../constants';
+import { AUDIO_EFFECTS, AUDIO_SIGNAL, EFFECT_DEFAULTS, NIGHTCORE } from '../constants';
 import { underwaterCutoffHz, reverbMakeupGain, bassBoostTrimGain } from './dsp';
 import { getDecayingNoiseImpulse, getEightDBedImpulse } from './impulse';
 import { BinaryWriter } from './binary';
 import { interleaveToInt16 } from './pcm';
+import { loadBeatSamples, type BeatRole } from './beatSamples';
+import { beatRoles, beatOnsetTimes } from './beatScheduler';
 
 export interface AudioProcessingOptions {
   speedMultiplier: number;
@@ -12,6 +14,14 @@ export interface AudioProcessingOptions {
   bassBoost?: boolean; // Bass boost effect
   bassBoostIntensity?: number; // Bass boost intensity (0.0 - 1.0)
   bassUnderwater?: number; // Underwater muffle amount within bass boost (0.0 - 1.0)
+  // Nightcore beat bed (Speed Up only). enable/volume are user choices; bpm and
+  // beatOffsetSec are the track's detected tempo, injected by the processor hook so
+  // the same grid drives live playback and the offline export.
+  enableBeats?: boolean; // Layer a percussion bed under the speed-up
+  beatsVolume?: number; // Beat-bed level, independent of master volume (0.0 - 1.0)
+  bpm?: number; // Detected tempo for the beat grid
+  beatOffsetSec?: number; // Seconds to the first downbeat of the grid
+  beatsPerBar?: 3 | 4; // Detected meter (waltz vs common time) for the beat pattern
 }
 
 /**
@@ -123,6 +133,12 @@ export class AudioProcessor {
       lastNode.connect(offlineContext.destination);
     }
 
+    // Bake the Nightcore beat bed so the export matches what was auditioned. Scheduled
+    // straight into the offline destination (in parallel to the music), on the same
+    // sped-up grid the live scheduler uses. Best-effort: a sample load failure leaves
+    // the export untouched rather than aborting it.
+    await this.scheduleOfflineBeats(offlineContext, options);
+
     source.start(0);
 
       return await offlineContext.startRendering();
@@ -130,6 +146,59 @@ export class AudioProcessor {
       const message = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Failed to process audio: ${message}`);
     }
+  }
+
+  /**
+   * Bake the Nightcore beat bed into the offline render. Mirrors the live scheduler's
+   * grid (per detected meter, crash every 4 bars, samples aligned to their attack) but
+   * on the offline timeline: song time maps to output time by dividing by the speed
+   * multiplier, so the grid lands at the same sped-up tempo the user auditioned.
+   */
+  private async scheduleOfflineBeats(
+    offlineContext: OfflineAudioContext,
+    options: AudioProcessingOptions,
+  ): Promise<void> {
+    const bpm = options.bpm ?? 0;
+    if (!options.enableBeats || bpm <= 0) return;
+
+    let samples;
+    try {
+      samples = await loadBeatSamples(this.getAudioContext());
+    } catch {
+      return; // samples unavailable - export the music without the bed
+    }
+
+    const speed = options.speedMultiplier || 1;
+    const beatOffsetSec = Math.max(0, options.beatOffsetSec ?? 0);
+    const beatsPerBar = options.beatsPerBar ?? 4;
+    const outputDuration = offlineContext.length / offlineContext.sampleRate;
+
+    const beatsGain = offlineContext.createGain();
+    beatsGain.gain.value = options.beatsVolume ?? EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_DEFAULT;
+    beatsGain.connect(offlineContext.destination);
+
+    const roleGains = {} as Record<BeatRole, GainNode>;
+    (Object.keys(NIGHTCORE.ROLE_GAINS) as BeatRole[]).forEach((role) => {
+      const gain = offlineContext.createGain();
+      gain.gain.value = NIGHTCORE.ROLE_GAINS[role];
+      gain.connect(beatsGain);
+      roleGains[role] = gain;
+    });
+
+    const fire = (role: BeatRole, when: number) => {
+      const sample = samples![role];
+      const src = offlineContext.createBufferSource();
+      src.buffer = sample.buffer;
+      src.connect(roleGains[role]);
+      // Start early by the sample's attack so the transient - not the buffer head -
+      // lands on the beat, matching the live scheduler. Clamped to the render start.
+      src.start(Math.max(0, when - sample.attackOffsetSec));
+    };
+
+    // Beat times on the sped-up output timeline (effective tempo = bpm × speed).
+    beatOnsetTimes(bpm, beatOffsetSec, speed, outputDuration).forEach((when, index) => {
+      for (const role of beatRoles(index, beatsPerBar)) fire(role, when);
+    });
   }
 
   /** Offline 8D: a dry signal that orbits the head over a constant reverb bed. */

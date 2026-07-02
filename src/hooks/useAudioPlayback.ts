@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AUDIO_PROCESSING, ERROR_MESSAGES } from '../constants';
+import { AUDIO_PROCESSING, EFFECT_DEFAULTS, ERROR_MESSAGES } from '../constants';
 import type { AudioProcessingOptions } from '../utils/audioProcessor';
 import { applyEffectOptions, applyEqGains, NEUTRAL_OPTIONS } from '../utils/effectGraph';
 import { buildPlaybackGraph, teardownPlaybackGraph, type PlaybackGraph } from '../utils/playbackGraph';
@@ -205,6 +205,15 @@ export function useAudioPlayback({
       duration: totalDuration,
     }));
     graph.source.start(0, startAt);
+    // Anchor the Nightcore grid to the same clock the playhead uses, then arm it.
+    // Tempo/pattern/volume were seeded from optionsRef when the graph was built.
+    graph.beats.setAnchor({
+      contextStartTime: playStartTimeRef.current,
+      songOffset: startAt,
+      playbackRate: rateRef.current,
+      songDuration: totalDuration,
+    });
+    graph.beats.start();
     playbackRafRef.current = requestAnimationFrame(tick);
   }, [cancelProgressTick, clock, getAudioContext, getBufferDuration, getFallbackBuffer, setError, teardownGraph]);
 
@@ -265,6 +274,15 @@ export function useAudioPlayback({
     const audioContext = getAudioContext();
     applyEffectOptions(graph.chain, options, audioContext, true);
 
+    // Beat bed rides the live graph too: tempo/enable/volume update in place, so
+    // toggling the beats never restarts playback.
+    graph.beats.setTempo(options.bpm ?? 0, options.beatOffsetSec ?? 0, options.beatsPerBar ?? 4);
+    graph.beats.setPattern(!!options.enableBeats);
+    graph.beats.setVolume(
+      options.beatsVolume ?? EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_DEFAULT,
+      true,
+    );
+
     const nextRate = options.speedMultiplier || 1;
     if (nextRate !== rateRef.current) {
       // Rebase the position clock before switching rate so elapsed time keeps mapping
@@ -278,8 +296,16 @@ export function useAudioPlayback({
       } else {
         param.value = nextRate;
       }
+      // Re-anchor the grid on the rebased clock so the beats stay glued to the music
+      // across the speed change (same math as the position clock above).
+      graph.beats.setAnchor({
+        contextStartTime: playStartTimeRef.current,
+        songOffset: startOffsetRef.current,
+        playbackRate: nextRate,
+        songDuration: getBufferDuration(activeBufferRef.current),
+      });
     }
-  }, [captureProgress, getAudioContext]);
+  }, [captureProgress, getAudioContext, getBufferDuration]);
 
   /**
    * Update the listening EQ in real time. While playing, every band ramps on the

@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useSyncExternalStore } from 'reac
 import { useTranslation } from 'react-i18next';
 import { useScrubber } from '../hooks/useScrubber';
 import { formatClock } from '../utils/formatters';
+import { AUDIO_PROCESSING } from '../constants';
 import { DurationToggle } from './DurationToggle';
 import type { PlaybackClock } from '../utils/playbackClock';
 
@@ -118,6 +119,7 @@ export function TransportTimeline({
       <DurationToggle
         duration={duration}
         current={second}
+        storageKey={AUDIO_PROCESSING.DURATION_DISPLAY_STORAGE_KEY_FOOTER}
         className="text-xs font-medium tabular-nums text-[rgb(var(--color-text-secondary))] w-12 text-left shrink-0 transition-colors hover:text-[rgb(var(--color-text))] focus-visible:text-[rgb(var(--color-text))] cursor-pointer"
       />
     </div>

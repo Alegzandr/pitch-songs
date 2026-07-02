@@ -5,6 +5,8 @@ import { useMood } from '../contexts/MoodContext';
 import { MOODS, MOOD_ORDER } from '../contexts/moods';
 import type { MoodId } from '../contexts/moods';
 import { Card } from './ui/card';
+import { BeatToggle } from './BeatToggle';
+import { ScrollFade } from './ScrollFade';
 import {
   Dialog,
   DialogTrigger,
@@ -132,7 +134,7 @@ function MoodGallery() {
 
 export const MoodRail = memo(function MoodRail() {
   const { t } = useTranslation();
-  const { mood, setMood, recentMoods } = useMood();
+  const { mood, setMood, recentMoods, showBackdrop, toggleBackdrop } = useMood();
 
   // The featured chip already names the active mood; repeating it in the recents
   // list right below would be pure redundancy. Recents = the moods you can go
@@ -145,8 +147,13 @@ export const MoodRail = memo(function MoodRail() {
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return (
-    <Card asChild className="hud-frame p-4 sm:p-5 audio-drift-b">
-      <aside className="flex flex-col gap-5" aria-label={t('studio.moods')}>
+    <Card asChild className="hud-frame p-4 sm:p-5 audio-drift-b max-h-[var(--col-max-h,100dvh)] flex flex-col">
+      <aside aria-label={t('studio.moods')}>
+        {/* Fixed frame window: the panel's glow + brackets hold still while the rail
+           contents scroll INSIDE it, so the scrollbar sits within the panel, not out
+           at the column edge. Capped to the space between the top/bottom rails, with
+           an edge dissolve (ScrollFade) cueing there's more when it overflows. */}
+        <ScrollFade className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain -mr-2 pr-2 sm:-mr-3 sm:pr-3">
         {/* Mood - the featured, currently-playing atmosphere. The dropdown opens
             the full gallery of every mood. */}
         <div className="space-y-2">
@@ -155,6 +162,19 @@ export const MoodRail = memo(function MoodRail() {
           </div>
           <MoodGallery />
         </div>
+
+        {/* Backdrop image - lets you drop the photo behind the HUD while keeping
+            the living haze, aurora and particles. A single preference across moods. */}
+        <BeatToggle
+          label={t('studio.backdrop')}
+          description={t('studio.backdropHint')}
+          // On a short viewport the console shrinks and scrolls; drop the hint
+          // line so the toggle stays compact and readable instead of getting
+          // clipped under the scroll fade.
+          descriptionClassName="[@media(max-height:820px)]:hidden"
+          pressed={showBackdrop}
+          onToggle={toggleBackdrop}
+        />
 
         {/* Recently used - quick one-tap return to the moods you've been cycling.
            Hidden until there is somewhere to return to. */}
@@ -183,6 +203,7 @@ export const MoodRail = memo(function MoodRail() {
             </ul>
           </div>
         )}
+        </ScrollFade>
       </aside>
     </Card>
   );

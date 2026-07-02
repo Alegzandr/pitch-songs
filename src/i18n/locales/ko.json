@@ -42,6 +42,9 @@
     "underwater": "수중",
     "underwaterSurface": "수면",
     "underwaterDeep": "깊게",
+    "nightcoreBeats": "나이트코어 비트",
+    "nightcoreBeatsHint": "빨라진 재생에 4/4 비트 추가",
+    "beatVolume": "비트 볼륨",
     "apply": "효과 적용",
     "processing": "처리 중..."
   },
@@ -98,7 +101,9 @@
     "scrub": "타임라인 스크럽",
     "raw": "원본",
     "fx": "효과",
-    "toggleRemaining": "남은 시간 표시"
+    "toggleRemaining": "남은 시간 표시",
+    "tempo": "{{bpm}} BPM · {{meter}}",
+    "tempoScaled": "{{bpm}} ({{original}}) BPM · {{meter}}"
   },
   "language": {
     "open": "언어 선택 열기",
@@ -143,6 +148,8 @@
     "allMoods": "모든 무드",
     "active": "켜짐",
     "inactive": "꺼짐",
-    "levels": "레벨"
+    "levels": "레벨",
+    "backdrop": "배경 이미지",
+    "backdropHint": "장면 뒤에 사진 표시"
   }
 }

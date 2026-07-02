@@ -515,6 +515,29 @@
     height: 0;
   }
 
+  /* Scroll cue: dissolve the content at whichever edge still hides more, so an
+     overflowing panel reads as scrollable even after the overlay scrollbar has
+     faded. <ScrollFade> ramps --fade-t/--fade-b from the live scroll position;
+     both default to 0px, so a panel that fits is fully opaque (no dissolve). */
+  .scroll-fade {
+    --fade-t: 0px;
+    --fade-b: 0px;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--fade-t),
+      #000 calc(100% - var(--fade-b)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--fade-t),
+      #000 calc(100% - var(--fade-b)),
+      transparent 100%
+    );
+  }
+
   /* The floating thumb itself (portaled to <body>). Fixed to the viewport,
      revealed only while scrolling / hovering / dragging so it never breaks the
      immersion; the mood scene shows through its translucent fill. */

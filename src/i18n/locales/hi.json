@@ -42,6 +42,9 @@
     "underwater": "पानी के नीचे",
     "underwaterSurface": "सतह",
     "underwaterDeep": "गहरा",
+    "nightcoreBeats": "नाइटकोर बीट्स",
+    "nightcoreBeatsHint": "स्पीड-अप पर 4/4 बीट जोड़ें",
+    "beatVolume": "बीट वॉल्यूम",
     "apply": "प्रभाव लागू करें",
     "processing": "प्रोसेसिंग..."
   },
@@ -98,7 +101,9 @@
     "scrub": "टाइमलाइन स्क्रब करें",
     "raw": "मूल",
     "fx": "प्रभाव",
-    "toggleRemaining": "शेष समय दिखाएं"
+    "toggleRemaining": "शेष समय दिखाएं",
+    "tempo": "{{bpm}} BPM · {{meter}}",
+    "tempoScaled": "{{bpm}} ({{original}}) BPM · {{meter}}"
   },
   "language": {
     "open": "भाषा चयनकर्ता खोलें",
@@ -143,6 +148,8 @@
     "allMoods": "सभी मूड",
     "active": "सक्रिय",
     "inactive": "निष्क्रिय",
-    "levels": "स्तर"
+    "levels": "स्तर",
+    "backdrop": "पृष्ठभूमि छवि",
+    "backdropHint": "दृश्य के पीछे फ़ोटो दिखाएं"
   }
 }

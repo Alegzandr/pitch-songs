@@ -42,6 +42,9 @@
     "underwater": "Unterwasser",
     "underwaterSurface": "Oberfläche",
     "underwaterDeep": "Tief",
+    "nightcoreBeats": "Nightcore-Beats",
+    "nightcoreBeatsHint": "Einen 4/4-Beat über das Tempo legen",
+    "beatVolume": "Beat-Lautstärke",
     "apply": "Effekte anwenden",
     "processing": "Verarbeitung..."
   },
@@ -98,7 +101,9 @@
     "scrub": "Zeitleiste anpassen",
     "raw": "Roh",
     "fx": "FX",
-    "toggleRemaining": "Verbleibende Zeit anzeigen"
+    "toggleRemaining": "Verbleibende Zeit anzeigen",
+    "tempo": "{{bpm}} BPM · {{meter}}",
+    "tempoScaled": "{{bpm}} ({{original}}) BPM · {{meter}}"
   },
   "language": {
     "open": "Sprachauswahl öffnen",
@@ -143,6 +148,8 @@
     "allMoods": "Alle Stimmungen",
     "active": "Aktiv",
     "inactive": "Inaktiv",
-    "levels": "Pegel"
+    "levels": "Pegel",
+    "backdrop": "Hintergrundbild",
+    "backdropHint": "Foto hinter der Szene anzeigen"
   }
 }

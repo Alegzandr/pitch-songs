@@ -130,8 +130,12 @@ export function useAudioReactivity({ getAnalyser, getLoudness, isPlaying, target
           const v = (time[i] - 128) / 128;
           sumSq += v * v;
         }
+        // Global intensity trim: pushes the calibrated targets a touch further into
+        // their range for more energy/amplitude, still clamped to 1 so it stays juste.
+        const gain = norm * AUDIO_REACTIVITY.INTENSITY;
+
         // RMS rarely exceeds ~0.45 on real music; lift it into a usable 0..1.
-        const targetLevel = Math.min(1, Math.sqrt(sumSq / time.length) * 2.2 * norm);
+        const targetLevel = Math.min(1, Math.sqrt(sumSq / time.length) * 2.2 * gain);
 
         // Three distinct bands so different surfaces can react to different parts
         // of the music (not everything strobing on the kick): bass = low ~12%,
@@ -139,18 +143,18 @@ export function useAudioReactivity({ getAnalyser, getLoudness, isPlaying, target
         const bassEnd = Math.max(1, Math.floor(bins * 0.12));
         let bSum = 0;
         for (let i = 0; i < bassEnd; i++) bSum += freq[i];
-        const targetBass = Math.min(1, (bSum / bassEnd / 255) * norm);
+        const targetBass = Math.min(1, (bSum / bassEnd / 255) * gain);
 
         const midStart = bassEnd;
         const midEnd = Math.max(midStart + 1, Math.floor(bins * 0.55));
         let mSum = 0;
         for (let i = midStart; i < midEnd; i++) mSum += freq[i];
-        const targetMid = Math.min(1, (mSum / (midEnd - midStart) / 255) * norm);
+        const targetMid = Math.min(1, (mSum / (midEnd - midStart) / 255) * gain);
 
         const trebleStart = Math.floor(bins * 0.6);
         let tSum = 0;
         for (let i = trebleStart; i < bins; i++) tSum += freq[i];
-        const targetTreble = Math.min(1, (tSum / (bins - trebleStart) / 255) * norm);
+        const targetTreble = Math.min(1, (tSum / (bins - trebleStart) / 255) * gain);
 
         // Fast attack, slower release - reads musical, not jittery.
         e.level += (targetLevel - e.level) * (targetLevel > e.level ? 0.5 : 0.12);

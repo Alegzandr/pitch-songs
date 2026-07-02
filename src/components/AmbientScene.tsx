@@ -60,10 +60,13 @@ const DAYBREAK_LAYERS = (
 );
 
 export const AmbientScene = memo(function AmbientScene() {
-  const { def } = useMood();
+  const { def, showBackdrop } = useMood();
   const sceneRef = useRef<HTMLDivElement>(null);
   const scene = def.scene;
   const isPhoto = scene !== 'daybreak';
+  // The photo backdrop is the only layer the user can switch off; the haze,
+  // aurora, veil, particles and meteors stay on (the "rest" of the scene).
+  const showPhoto = isPhoto && showBackdrop;
   const photoClass = SCENE_PHOTO_CLASS[scene];
   const photoSrc = PHOTO_SRC[scene];
 
@@ -146,9 +149,9 @@ export const AmbientScene = memo(function AmbientScene() {
   // `scene` keys both the layer markup and the `.scene-<id>` CSS.
   return (
     <div ref={sceneRef} className={`scene scene-${scene}`} aria-hidden="true">
-      {isPhoto ? (
+      {showPhoto ? (
         <div className={`scene-photo ${photoClass ?? ''}${ready ? ' is-ready' : ''}`} />
-      ) : (
+      ) : isPhoto ? null : (
         DAYBREAK_LAYERS
       )}
       {/* Living aurora veils - the audio-reactive shader light over the photo.

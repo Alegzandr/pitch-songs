@@ -6,6 +6,9 @@ import type { MoodId, MoodDef } from './moods';
 
 const STORAGE_KEY = 'mood';
 const RECENTS_KEY = 'mood-recents';
+/** Whether the ambient scene paints its photo backdrop. Stored separately so it's
+ *  a single preference across every mood; missing/anything-but-'false' means on. */
+const BACKDROP_KEY = 'mood-backdrop';
 /** How many moods the rail surfaces as "recently used". */
 const MAX_RECENTS = 5;
 /** How long `.mood-shifting` stays on <html> to ease the palette across a switch.
@@ -20,6 +23,9 @@ interface MoodContextType {
   setMood: (id: MoodId) => void;
   /** Most-recently-applied moods, newest first, current mood always at index 0. */
   recentMoods: MoodId[];
+  /** Whether the scene shows its photo backdrop (the rest of the scene stays). */
+  showBackdrop: boolean;
+  toggleBackdrop: () => void;
 }
 
 const MoodContext = createContext<MoodContextType | undefined>(undefined);
@@ -39,8 +45,14 @@ function readRecents(): MoodId[] {
   return [];
 }
 
+function readInitialBackdrop(): boolean {
+  // Default on; only an explicit 'false' turns the photo off.
+  return localStorage.getItem(BACKDROP_KEY) !== 'false';
+}
+
 export function MoodProvider({ children }: { children: ReactNode }) {
   const [mood, setMoodState] = useState<MoodId>(readInitialMood);
+  const [showBackdrop, setShowBackdrop] = useState<boolean>(readInitialBackdrop);
   const [recentMoods, setRecentMoods] = useState<MoodId[]>(() => {
     const current = readInitialMood();
     // Pin the active mood to the front so the rail always opens on the mood
@@ -94,11 +106,19 @@ export function MoodProvider({ children }: { children: ReactNode }) {
     setRecentMoods((prev) => [id, ...prev.filter((t) => t !== id)].slice(0, MAX_RECENTS));
   }, []);
 
+  const toggleBackdrop = useCallback(() => {
+    setShowBackdrop((prev) => {
+      const next = !prev;
+      localStorage.setItem(BACKDROP_KEY, String(next));
+      return next;
+    });
+  }, []);
+
   // Stable value object so memoised consumers (AmbientScene, MoodRail, …) can bail
   // out when the provider re-renders for an unrelated reason.
   const value = useMemo(
-    () => ({ mood, def: MOODS[mood], setMood, recentMoods }),
-    [mood, recentMoods, setMood],
+    () => ({ mood, def: MOODS[mood], setMood, recentMoods, showBackdrop, toggleBackdrop }),
+    [mood, recentMoods, setMood, showBackdrop, toggleBackdrop],
   );
 
   return (

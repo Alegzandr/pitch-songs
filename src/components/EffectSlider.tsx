@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Slider } from "@/components/ui/slider";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useDoubleClickReset } from "@/hooks/useDoubleClickReset";
 
 interface EffectSliderProps {
@@ -61,18 +62,22 @@ export function EffectSlider({
                     {formattedValue}
                 </span>
             </div>
-            <Slider
-                id={id}
-                min={min}
-                max={max}
-                step={step}
-                value={value}
-                onValueChange={onChange}
-                onClick={handleDoubleClickReset}
-                disabled={disabled}
-                aria-label={`${label}: ${formattedValue}`}
-                title={t("effects.resetHint")}
-            />
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Slider
+                        id={id}
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={value}
+                        onValueChange={onChange}
+                        onClick={handleDoubleClickReset}
+                        disabled={disabled}
+                        aria-label={`${label}: ${formattedValue}`}
+                    />
+                </TooltipTrigger>
+                <TooltipContent>{t("effects.resetHint")}</TooltipContent>
+            </Tooltip>
             {markers && (
                 <div className="flex justify-between text-xs text-[rgb(var(--color-text-secondary))]">
                     {markers.map((marker, index) => (

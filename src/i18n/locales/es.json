@@ -30,9 +30,9 @@
     "speedUp": "Acelerar",
     "slowReverb": "Lento + Reverb",
     "8dAudio": "Audio 8D",
-    "bassBoost": "Realce de Graves",
+    "bassBoost": "Realce de graves",
     "speed": "Velocidad",
-    "slowSpeed": "Velocidad Lenta",
+    "slowSpeed": "Velocidad lenta",
     "reverb": "Reverberación",
     "rotationSpeed": "Velocidad de rotación",
     "bassIntensity": "Intensidad",
@@ -42,6 +42,9 @@
     "underwater": "Bajo el agua",
     "underwaterSurface": "Superficie",
     "underwaterDeep": "Profundo",
+    "nightcoreBeats": "Ritmo nightcore",
+    "nightcoreBeatsHint": "Añade una base de percusión 4/4 a la aceleración",
+    "beatVolume": "Volumen del ritmo",
     "apply": "Aplicar efectos",
     "processing": "Procesando..."
   },
@@ -63,7 +66,7 @@
     "bitrate": "Bitrate",
     "sampleRate": "Frec. muestreo",
     "channels": "Canales",
-    "bitDepth": "Profundidad de Bits",
+    "bitDepth": "Profundidad de bits",
     "mono": "Mono",
     "stereo": "Estéreo"
   },
@@ -73,11 +76,11 @@
       "desc": "Velocidad, lento + reverb, 8D, graves"
     },
     "private": {
-      "title": "100% Privado",
+      "title": "100% privado",
       "desc": "Tus archivos nunca salen de tu dispositivo"
     },
     "export": {
-      "title": "Exportación Instantánea",
+      "title": "Exportación instantánea",
       "desc": "Mismo formato y calidad que tu original"
     }
   },
@@ -98,7 +101,9 @@
     "scrub": "Mover en la línea de tiempo",
     "raw": "Original",
     "fx": "FX",
-    "toggleRemaining": "Mostrar el tiempo restante"
+    "toggleRemaining": "Mostrar el tiempo restante",
+    "tempo": "{{bpm}} BPM · {{meter}}",
+    "tempoScaled": "{{bpm}} ({{original}}) BPM · {{meter}}"
   },
   "language": {
     "open": "Abrir selector de idioma",
@@ -143,6 +148,8 @@
     "allMoods": "Todos los ambientes",
     "active": "Activo",
     "inactive": "Inactivo",
-    "levels": "Niveles"
+    "levels": "Niveles",
+    "backdrop": "Imagen de fondo",
+    "backdropHint": "Mostrar la foto detrás de la escena"
   }
 }

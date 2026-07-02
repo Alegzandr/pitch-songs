@@ -218,15 +218,18 @@ export function createWaveInstrument(
   const ensureGradients = (h: number) => {
     if (playedGrad && unplayedGrad && gradHeight === h) return;
     gradHeight = h;
-    // Tips stay bright enough (0.26) that the fill visibly reaches its true
-    // envelope: with faded tips the lit body reads SMALLER than the ghost's
-    // crisp outline across the playhead, as if the light didn't fill the wave.
+    // Translucent light, not opaque paint: the body reads as accent-tinted glass
+    // so the mood scene keeps breathing through it (a solid white core made the
+    // played region a crème slab that fell out of the glassy cockpit). The hot
+    // centreline is carried by the additive core spine (step 4), so the fill
+    // itself can stay soft. Tips hold enough alpha (~0.24) that the lit body
+    // still reaches its true envelope under the crisp accent contour.
     playedGrad = ctx.createLinearGradient(0, 0, 0, h);
-    playedGrad.addColorStop(0, rgba(accent, 0.26));
-    playedGrad.addColorStop(0.3, rgba(accent, 0.7));
-    playedGrad.addColorStop(0.5, rgba(core, 0.92));
-    playedGrad.addColorStop(0.7, rgba(accent, 0.7));
-    playedGrad.addColorStop(1, rgba(accent, 0.26));
+    playedGrad.addColorStop(0, rgba(accent, 0.24));
+    playedGrad.addColorStop(0.3, rgba(accent, 0.5));
+    playedGrad.addColorStop(0.5, rgba(mix(accent, core, 0.5), 0.64));
+    playedGrad.addColorStop(0.7, rgba(accent, 0.5));
+    playedGrad.addColorStop(1, rgba(accent, 0.24));
     // The unplayed tail is a GHOST: a near-empty body under a fine luminous
     // edge (stroked separately), so the scene keeps breathing through it.
     unplayedGrad = ctx.createLinearGradient(0, 0, 0, h);
@@ -307,7 +310,12 @@ export function createWaveInstrument(
     ensureGradients(cssH);
 
     const { ratio, isPlaying, reducedMotion, fx } = frame;
-    const contentWidth = Math.max(frame.contentWidth, cssW);
+    // The drawn clip width MUST match the host's scrub surface width exactly, or a
+    // click lands at a different ratio than where the ribbon/playhead is painted.
+    // A sped-up clip is narrower than the viewport (host anchors it left, time-0);
+    // never clamp it up to cssW here, that would stretch the paint full-width while
+    // the hit area stays narrow and seeks would jump ~rate× too far.
+    const contentWidth = Math.max(frame.contentWidth, 1);
     const scrollLeft = frame.scrollLeft;
     // Real frame delta (clamped so a background-tab stall can't teleport the
     // physics), so speed is identical at 60, 120 or 144Hz.

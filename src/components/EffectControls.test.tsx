@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect } from 'vitest';
 import { EffectControls } from './EffectControls';
+import { EFFECT_DEFAULTS } from '../constants';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -16,7 +17,13 @@ describe('EffectControls', () => {
     expect(onChange).toHaveBeenCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.7, reverbAmount: 0.5 });
 
     await userEvent.click(screen.getByText('effects.speedUp'));
-    expect(onChange).toHaveBeenLastCalledWith({ mode: 'speed-up', speedMultiplier: 1.3, reverbAmount: 0 });
+    expect(onChange).toHaveBeenLastCalledWith({
+      mode: 'speed-up',
+      speedMultiplier: 1.2,
+      reverbAmount: 0,
+      enableBeats: false,
+      beatsVolume: EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_DEFAULT,
+    });
 
     await userEvent.click(screen.getByText('effects.slowReverb'));
     expect(onChange).toHaveBeenLastCalledWith({ mode: 'slow-reverb', speedMultiplier: 0.7, reverbAmount: 0.5 });
@@ -40,6 +47,31 @@ describe('EffectControls', () => {
     // "Original" is the absence of an active effect, not a selectable row.
     await userEvent.click(screen.getByText('effects.8dAudio'));
     expect(onChange).toHaveBeenLastCalledWith({ mode: 'none', speedMultiplier: 1, reverbAmount: 0 });
+  });
+
+  it('exposes the Nightcore beat bed under Speed Up', async () => {
+    const onChange = vi.fn();
+    render(<EffectControls onChange={onChange} />);
+
+    await userEvent.click(screen.getByText('effects.speedUp'));
+    // Beats are off by default; beat volume seeded at its preset default.
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: 'speed-up',
+        enableBeats: false,
+        beatsVolume: EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_DEFAULT,
+      }),
+    );
+
+    // The volume slider only appears once the bed is switched on.
+    expect(screen.queryByLabelText(/effects\.beatVolume/)).toBeNull();
+
+    await userEvent.click(screen.getByRole('switch', { name: 'effects.nightcoreBeats' }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ enableBeats: true }));
+
+    const beatsVolume = screen.getByLabelText(/effects\.beatVolume/);
+    fireEvent.change(beatsVolume, { target: { value: '0.5' } });
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ beatsVolume: 0.5 }));
   });
 
   it('toggles the active effect off back to the untouched track', async () => {

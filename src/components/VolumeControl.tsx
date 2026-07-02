@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Volume2, Volume1, VolumeX } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useDoubleClickReset } from '@/hooks/useDoubleClickReset';
 import { AUDIO_PROCESSING } from '@/constants';
 
@@ -12,7 +13,6 @@ interface VolumeControlProps {
   className?: string;
 }
 
-const WHEEL_STEP = 0.05;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -62,7 +62,7 @@ export const VolumeControl = memo(function VolumeControl({ volume, onVolumeChang
       if (disabledRef.current) return;
       event.preventDefault();
       const direction = event.deltaY < 0 ? 1 : -1;
-      const next = round2(clamp01(volumeRef.current + direction * WHEEL_STEP));
+      const next = round2(clamp01(volumeRef.current + direction * AUDIO_PROCESSING.VOLUME_STEP));
       if (next !== volumeRef.current) changeRef.current(next);
     };
 
@@ -78,30 +78,39 @@ export const VolumeControl = memo(function VolumeControl({ volume, onVolumeChang
     <div
       ref={wrapperRef}
       className={`flex items-center gap-2 px-2 py-2 rounded-full hover:bg-[rgba(var(--color-border),0.3)] transition-colors ${className}`}
-      title={`${t('playback.volume')}: ${percent}%`}
     >
-      <button
-        type="button"
-        onClick={toggleMute}
-        disabled={disabled}
-        aria-label={muted ? t('playback.unmute') : t('playback.mute')}
-        title={muted ? t('playback.unmute') : t('playback.mute')}
-        className="shrink-0 flex items-center justify-center rounded-full text-[rgb(var(--color-text-secondary))] hover:text-[rgb(var(--color-text))] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-accent))]"
-      >
-        <VolumeIcon className="w-4 h-4" aria-hidden="true" />
-      </button>
-      <Slider
-        min={0}
-        max={1}
-        step={0.01}
-        value={volume}
-        onValueChange={(v) => onVolumeChange(round2(v))}
-        onClick={handleDoubleClickReset}
-        disabled={disabled}
-        aria-label={`${t('playback.volume')}: ${percent}%`}
-        title={t('effects.resetHint')}
-        className="w-20 sm:w-24"
-      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={toggleMute}
+            disabled={disabled}
+            aria-label={muted ? t('playback.unmute') : t('playback.mute')}
+            className="shrink-0 flex items-center justify-center rounded-full text-[rgb(var(--color-text-secondary))] hover:text-[rgb(var(--color-text))] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-accent))]"
+          >
+            <VolumeIcon className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{muted ? t('playback.unmute') : t('playback.mute')}</TooltipContent>
+      </Tooltip>
+      {/* The live level readout lives here (the control shows no number otherwise);
+          double-clicking still snaps back to the default. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Slider
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onValueChange={(v) => onVolumeChange(round2(v))}
+            onClick={handleDoubleClickReset}
+            disabled={disabled}
+            aria-label={`${t('playback.volume')}: ${percent}%`}
+            className="w-20 sm:w-24"
+          />
+        </TooltipTrigger>
+        <TooltipContent>{`${t('playback.volume')}: ${percent}%`}</TooltipContent>
+      </Tooltip>
     </div>
   );
 });

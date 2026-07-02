@@ -120,6 +120,9 @@ describe('App', () => {
       bassBoost: false,
       bassBoostIntensity: undefined,
       bassUnderwater: undefined,
+      // Nightcore beat fields ride along on every options payload; off outside Speed Up.
+      enableBeats: false,
+      beatsVolume: undefined,
     });
 
     await userEvent.click(screen.getByLabelText('playback.play'));

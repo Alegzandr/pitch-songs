@@ -6,12 +6,16 @@ import {
   disconnectEffectChain,
   type EffectChain,
 } from './effectGraph';
+import { BeatScheduler } from './beatScheduler';
+import { EFFECT_DEFAULTS } from '../constants';
 
 export interface PlaybackGraph {
   source: AudioBufferSourceNode;
   gain: GainNode;
   analyser: AnalyserNode | null;
   chain: EffectChain;
+  /** Nightcore percussion bed; its output joins the master gain (post-analyser). */
+  beats: BeatScheduler;
 }
 
 interface PlaybackGraphSettings {
@@ -62,7 +66,19 @@ export function buildPlaybackGraph(
   applyEffectOptions(chain, options, audioContext, false);
   applyEqGains(chain, eqGains, audioContext, false);
 
-  return { source, gain, analyser, chain };
+  // Nightcore beat bed: joins the master gain *after* the analyser tap, so the
+  // metronome never feeds the "breathe with the music" reactivity, but the master
+  // volume still governs the overall level. Its own gain gives the beats a level
+  // independent of the track. The playback hook drives its anchor/start/stop.
+  const beats = new BeatScheduler(
+    audioContext,
+    options.beatsVolume ?? EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_DEFAULT,
+  );
+  beats.output.connect(gain);
+  beats.setTempo(options.bpm ?? 0, options.beatOffsetSec ?? 0, options.beatsPerBar ?? 4);
+  beats.setPattern(!!options.enableBeats);
+
+  return { source, gain, analyser, chain, beats };
 }
 
 function safeDisconnect(node: AudioNode | null) {
@@ -82,6 +98,7 @@ export function teardownPlaybackGraph(graph: PlaybackGraph | null): void {
     // never started or already stopped
   }
   safeDisconnect(graph.source);
+  graph.beats.dispose();
   disconnectEffectChain(graph.chain);
   safeDisconnect(graph.gain);
   safeDisconnect(graph.analyser);

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileUploader } from './components/FileUploader';
 import { FileDropOverlay } from './components/FileDropOverlay';
@@ -13,6 +13,7 @@ import { prefersReducedMotion } from './components/scenes/motion';
 import { DesktopOnlyGate } from './components/DesktopOnlyGate';
 import { useIsViewportTooNarrow } from './hooks/useViewportGate';
 import { WaveformTimeline } from './components/WaveformTimeline';
+import { ScrollFade } from './components/ScrollFade';
 import { MoodRail } from './components/MoodRail';
 import { MarqueeText } from './components/MarqueeText';
 import { OverlayScrollbar } from './components/OverlayScrollbar';
@@ -26,8 +27,11 @@ import { useAudioProcessor } from './hooks/useAudioProcessor';
 import type { AudioMetadata } from './hooks/useAudioFile';
 import { useAudioReactivity } from './hooks/useAudioReactivity';
 import { useEq } from './contexts/EqContext';
-import { EFFECT_EXPORT_LABELS, EFFECT_DEFAULTS } from './constants';
+import { EFFECT_EXPORT_LABELS, EFFECT_DEFAULTS, AUDIO_PROCESSING, VIEWPORT } from './constants';
 import type { AudioProcessingOptions } from './utils/audioProcessor';
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const toOptions = (s: EffectSettings): AudioProcessingOptions => ({
   speedMultiplier: s.speedMultiplier,
@@ -37,6 +41,10 @@ const toOptions = (s: EffectSettings): AudioProcessingOptions => ({
   bassBoost: s.mode === 'bass-boost',
   bassBoostIntensity: s.bassBoostIntensity,
   bassUnderwater: s.bassUnderwater,
+  // Nightcore beat bed is a Speed Up sub-option; the detected tempo is folded in
+  // downstream (useAudioProcessor.setEffects), so it isn't carried here.
+  enableBeats: s.mode === 'speed-up' && !!s.enableBeats,
+  beatsVolume: s.beatsVolume,
 });
 
 // Centred content column shared by the workspace rails (header, main, transport):
@@ -86,6 +94,8 @@ function App() {
     duration,
     volume,
     repeat,
+    detectedBpm,
+    detectedMeter,
     metadata,
     loadAudioFile,
     setEffects,
@@ -243,6 +253,41 @@ function App() {
     [seekTo, playbackRate]
   );
 
+  // Arrow-key transport: left/right nudge the playhead by SEEK_STEP_SECONDS, up/down
+  // raise/lower the volume by VOLUME_STEP. Global like the spacebar, but it yields to
+  // any focused field, native slider or listbox/menu that already drives the arrows
+  // itself, so we only act when the keys would otherwise do nothing. Seeks in effective
+  // time (handleSeek) so the step stays honest whatever the playback speed.
+  useEffect(() => {
+    if (!hasPlayableAudio || state.isExporting) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const key = e.key;
+      if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown') {
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.closest('input, textarea, select, [role="slider"], [role="listbox"], [role="menu"], [role="combobox"]')
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        const step = key === 'ArrowRight' ? AUDIO_PROCESSING.SEEK_STEP_SECONDS : -AUDIO_PROCESSING.SEEK_STEP_SECONDS;
+        handleSeek(Math.max(0, Math.min(effectiveDuration, effectiveClock.get() + step)));
+      } else {
+        const step = key === 'ArrowUp' ? AUDIO_PROCESSING.VOLUME_STEP : -AUDIO_PROCESSING.VOLUME_STEP;
+        updateVolume(round2(clamp01(volume + step)));
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hasPlayableAudio, state.isExporting, effectiveClock, effectiveDuration, handleSeek, volume, updateVolume]);
+
   const handleExport = useCallback(async () => {
     try {
       // Pause playback before exporting so the offline render isn't fighting the
@@ -266,7 +311,52 @@ function App() {
   // and never lands under prefers-reduced-motion; it is removed after the
   // choreography so the resting cockpit carries no animation styles.
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
   const hadSessionRef = useRef(false);
+
+  // When the between-rails band is too short for the centre's stacked plates (and
+  // the viewport is wide enough to spare the width), the identity plate and the
+  // waveform reflow side by side instead of running the stack into the transport.
+  const [centerCompact, setCenterCompact] = useState(false);
+
+  // Publish the between-rails height as `--col-max-h`: the side consoles cap their
+  // frame to it and scroll their contents INSIDE the frame past that point, so an
+  // overlong console stays put on screen instead of growing the page or dragging
+  // its neighbours. Measured off the rails (their heights shift with locale and
+  // wrapping) - never off the main box, which is free to grow and page-scroll as
+  // the ultimate fallback, so reading it would feed the cap the grown height.
+  // Layout effect + observer so the cap is live before first paint (no flash).
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    const main = mainRef.current;
+    if (!shell || !main) return;
+    const apply = () => {
+      const cs = getComputedStyle(main);
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const headerH = headerRef.current?.offsetHeight ?? 0;
+      const footerH = footerRef.current?.offsetHeight ?? 0;
+      const avail = Math.max(0, Math.round(shell.clientHeight - headerH - footerH - padY));
+      if (main.style.getPropertyValue('--col-max-h') !== `${avail}px`) {
+        main.style.setProperty('--col-max-h', `${avail}px`);
+      }
+      // Reflow the centre to side-by-side only when it's both short AND wide enough
+      // to split; changing this never feeds back into `avail` (it caps the centre,
+      // not the rails), so there's no measure/layout loop.
+      const compact =
+        avail > 0 &&
+        avail < VIEWPORT.CENTER_STACK_MIN_HEIGHT &&
+        shell.clientWidth >= VIEWPORT.CENTER_SPLIT_MIN_WIDTH;
+      setCenterCompact((prev) => (prev === compact ? prev : compact));
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(shell);
+    if (headerRef.current) ro.observe(headerRef.current);
+    if (footerRef.current) ro.observe(footerRef.current);
+    return () => ro.disconnect();
+  }, [hasSession, processedBuffer, originalFile]);
   useEffect(() => {
     const had = hadSessionRef.current;
     hadSessionRef.current = hasSession;
@@ -317,7 +407,7 @@ function App() {
       <AmbientScene />
       <MoodTransition />
       <FileDropOverlay onFileSelect={handleFileSelect} disabled={state.isExporting} />
-      <header className="hud-rail hud-rail-top sticky top-0 z-40 bg-[rgba(var(--color-surface),0.78)] backdrop-blur-xl border-b border-[rgba(var(--color-border),0.5)]">
+      <header ref={headerRef} className="hud-rail hud-rail-top sticky top-0 z-40 bg-[rgba(var(--color-surface),0.78)] backdrop-blur-xl border-b border-[rgba(var(--color-border),0.5)]">
         <div className="hud-bow">
         <div className={`hud-bow-inner ${SHELL_WIDTH_CLASS} h-16 flex items-center justify-between gap-4`}>
           <Tooltip>
@@ -349,8 +439,21 @@ function App() {
         </div>
       </header>
 
-      {/* Biased upward (bottom padding > top) so content sits in the upper-middle. */}
-      <main className={`flex-1 ${SHELL_WIDTH_CLASS} pt-6 sm:pt-8 pb-32 sm:pb-40 flex flex-col gap-8 sm:gap-10 lg:justify-center`}>
+      {/* min-h-0 + overflow-hidden lock main to the between-rails band: it can never
+         grow the page, and any residual spill is CLIPPED here (behind the rails)
+         instead of extending the shell's scroll area - so the workspace never gains a
+         page scrollbar, whatever the height. An overlong column scrolls inside its own
+         frame (capped at --col-max-h); the centre shrinks its waveform to fit.
+         `safe center` keeps the block vertically centred when it fits, but falls back
+         to top-aligned the instant it can't - so a cramped cockpit never pushes the
+         track title up under the header (data-loss edge), it clips at the bottom.
+         Gutters kept small on purpose: their SUM is subtracted from --col-max-h, so
+         every extra px is height the side consoles lose and start scrolling within.
+         Symmetric top/bottom: the raked consoles project their outer corners BOTH
+         up and down (rotateY tilt about the vertical centre), so a tall console needs
+         equal clearance at each rail or a corner kisses it - past this the console
+         just scrolls, the fade cueing it. */}
+      <main ref={mainRef} className={`flex-1 min-h-0 overflow-hidden ${SHELL_WIDTH_CLASS} pt-10 sm:pt-12 pb-10 sm:pb-12 flex flex-col gap-8 sm:gap-10 lg:[justify-content:safe_center]`}>
         {errorBanner}
 
         {/* Cockpit: raked FX console | flat waveform centrepiece | raked mood
@@ -359,17 +462,31 @@ function App() {
            centre stays flat - the part you look through, so its glass blur is
            never flattened by a 3D ancestor. Desktop-only (the tilt lives in a
            lg+ media query); stacked layouts render flat. */}
-        <div className="grid gap-6 lg:gap-16 xl:gap-24 2xl:gap-32 items-start lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)_minmax(280px,340px)]">
+        {/* Column budget: the centre (waveform) must stay the widest track at every
+           desktop width - fixed-max side tracks win the free space race against the
+           `fr` centre, so their maxes and the gaps are stepped per breakpoint to
+           leave the centrepiece the lion's share (e.g. at 1024px: 300+260 sides,
+           32px gaps → 320px centre; at 1440px: 380+320 → 564px centre). */}
+        <div className="grid gap-6 lg:gap-8 xl:gap-12 2xl:gap-20 items-start lg:grid-cols-[minmax(280px,300px)_minmax(0,1fr)_minmax(240px,260px)] xl:grid-cols-[minmax(320px,380px)_minmax(0,1fr)_minmax(280px,320px)] 2xl:grid-cols-[minmax(340px,400px)_minmax(0,1fr)_minmax(300px,340px)]">
           {originalFile && (
             <div className="hud-console">
               <div className="hud-console-left">
-                <Card asChild className="hud-frame p-4 sm:p-5">
+                {/* The frame is a fixed window: it holds its glow + corner brackets
+                   still while the controls scroll INSIDE it, so the translucent
+                   scrollbar sits within the panel (inset by its padding), not out in
+                   a gutter at the column edge. Capped to the space between rails. */}
+                <Card asChild className="hud-frame p-4 sm:p-5 max-h-[var(--col-max-h,100dvh)] flex flex-col">
                   <aside>
-                    <EffectControls
-                      onChange={handleEffectChange}
-                      disabled={state.isExporting}
-                      initialSettings={effectSettings}
-                    />
+                    {/* Negative margin + matching padding pulls the scrollbar close to
+                       the panel's inner edge while leaving the content where it sits;
+                       ScrollFade dissolves the edge to cue there's more to scroll. */}
+                    <ScrollFade className="min-h-0 flex-1 overflow-y-auto overscroll-contain -mr-2 pr-2 sm:-mr-3 sm:pr-3">
+                      <EffectControls
+                        onChange={handleEffectChange}
+                        disabled={state.isExporting}
+                        initialSettings={effectSettings}
+                      />
+                    </ScrollFade>
                   </aside>
                 </Card>
               </div>
@@ -380,13 +497,25 @@ function App() {
              directly above the waveform - the cockpit's central read-out column
              (title + the format telemetry), then the timeline beneath it. Flat,
              never raked: a tilt here would distort the title and the waveform. */}
-          <section className="min-w-0 flex flex-col gap-6">
+          <section
+            className={`min-w-0 flex gap-6 max-h-[var(--col-max-h,100dvh)] min-h-0 ${
+              centerCompact ? 'flex-row items-stretch' : 'flex-col'
+            }`}
+          >
             {originalFile && (
-              <Card asChild className="hud-frame px-5 py-4 sm:px-6 sm:py-5">
+              <Card
+                asChild
+                className={`hud-frame px-5 py-4 sm:px-6 sm:py-5 shrink-0 ${
+                  // Compact: a full-height inspector strip beside the waveform - same
+                  // height as the consoles (it stretches), with the readouts spread
+                  // down the column below so it never reads as a half-empty box.
+                  centerCompact ? 'w-72' : ''
+                }`}
+              >
                 <div className="flex flex-col gap-3.5">
                   {/* Corner tab + title - the HUD "tab" anchors this plate to the
                      same language as the EFFETS / MOOD panels. */}
-                  <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-col gap-1.5 shrink-0">
                     <span className="hud-readout">{t('track.title')}</span>
                     <h2 className="min-w-0">
                       <MarqueeText
@@ -397,32 +526,63 @@ function App() {
                   </div>
                   {metaItems.length > 0 && (
                     <>
-                      <div className="hud-ruler" aria-hidden="true" />
-                      {/* Format telemetry spread edge-to-edge, each readout sized
-                         to its own label (equal 1fr columns truncated the longer
-                         locales' labels mid-word). space-between keeps the strip
-                         filling the plate's width; wrap is the long-locale net. */}
-                      <dl className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
-                        {metaItems.map((item) => (
-                          <MetaReadout key={item.label} label={item.label} value={item.value} />
-                        ))}
-                      </dl>
+                      <div className="hud-ruler shrink-0" aria-hidden="true" />
+                      {/* Format telemetry, two layouts for the two centre modes.
+                         Stacked: readouts (label over value) spread edge-to-edge
+                         across the plate's width, wrap the long-locale net.
+                         Compact: a full-height spec sheet - one datum per row
+                         (label left, value right), each row an equal slice of the
+                         column (flex-1) with hairline dividers between, so the info
+                         fills the strip evenly instead of clustering. */}
+                      {centerCompact ? (
+                        <dl className="flex-1 flex flex-col">
+                          {metaItems.map((item, i) => (
+                            <div
+                              key={item.label}
+                              className={`flex flex-1 items-center justify-between gap-4 ${
+                                i > 0 ? 'border-t border-[rgba(var(--color-border),0.4)]' : ''
+                              }`}
+                            >
+                              <dt className="hud-readout shrink-0">{item.label}</dt>
+                              <dd className="text-sm font-medium tabular-nums text-[rgb(var(--color-text))] truncate text-right">
+                                {item.value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : (
+                        <dl className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
+                          {metaItems.map((item) => (
+                            <MetaReadout key={item.label} label={item.label} value={item.value} />
+                          ))}
+                        </dl>
+                      )}
                     </>
                   )}
                 </div>
               </Card>
             )}
 
+            {/* The waveform takes the leftover space in whichever axis the centre is
+               laid out: stacked, flex-1 owns the height under the (shrink-0) identity
+               plate and gives it up first on a short viewport; compact (side by side),
+               it owns the width beside the inspector and stretches to the band height.
+               Either way the card gets a definite size to fill and shrinks its stage
+               from within (down to a floor) so the centre always fits --col-max-h. */}
             {stageBuffer && (
-              <WaveformTimeline
-                buffer={stageBuffer}
-                duration={effectiveDuration}
-                clock={effectiveClock}
-                isPlaying={state.isPlaying}
-                onSeek={handleSeek}
-                options={effectOptions}
-                getAnalyser={getAnalyser}
-              />
+              <div className="min-h-0 min-w-0 flex-1">
+                <WaveformTimeline
+                  buffer={stageBuffer}
+                  duration={effectiveDuration}
+                  clock={effectiveClock}
+                  isPlaying={state.isPlaying}
+                  onSeek={handleSeek}
+                  options={effectOptions}
+                  getAnalyser={getAnalyser}
+                  detectedBpm={detectedBpm}
+                  detectedMeter={detectedMeter}
+                />
+              </div>
             )}
           </section>
 
@@ -435,7 +595,7 @@ function App() {
       </main>
 
       {(processedBuffer || originalFile) && (
-        <div className="hud-rail hud-rail-bottom sticky bottom-0 z-30 bg-[rgba(var(--color-surface),0.85)] backdrop-blur-xl border-t border-[rgba(var(--color-border),0.5)] shadow-[0_-14px_40px_-28px_rgba(var(--color-accent),0.5)]">
+        <div ref={footerRef} className="hud-rail hud-rail-bottom sticky bottom-0 z-30 bg-[rgba(var(--color-surface),0.85)] backdrop-blur-xl border-t border-[rgba(var(--color-border),0.5)] shadow-[0_-14px_40px_-28px_rgba(var(--color-accent),0.5)]">
           <div className="hud-bow">
           <div className={`hud-bow-inner ${SHELL_WIDTH_CLASS} py-3`}>
             <PlaybackControls

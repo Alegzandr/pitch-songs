@@ -1,9 +1,11 @@
-import { memo, useState, useEffect } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Zap, Waves, Radio, Volume2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { prefersReducedMotion } from "./scenes/motion";
 import { EffectSlider } from "./EffectSlider";
 import { EffectRow } from "./EffectRow";
+import { BeatToggle } from "./BeatToggle";
 import { LevelMeter } from "./LevelMeter";
 import { EFFECT_DEFAULTS } from "../constants";
 import {
@@ -25,6 +27,9 @@ export interface EffectSettings {
     rotationSpeed?: number;
     bassBoostIntensity?: number;
     bassUnderwater?: number;
+    // Nightcore beat bed (Speed Up only).
+    enableBeats?: boolean;
+    beatsVolume?: number;
     mode: EffectMode;
 }
 
@@ -83,13 +88,27 @@ export const EffectControls = memo(function EffectControls({ onChange, disabled,
         initialSettings?.bassUnderwater ??
             EFFECT_DEFAULTS.BASS_BOOST_UI.UNDERWATER_DEFAULT
     );
+    const [enableBeats, setEnableBeats] = useState<boolean>(
+        initialSettings?.enableBeats ??
+            EFFECT_DEFAULTS.NIGHTCORE_BEATS.ENABLED_DEFAULT
+    );
+    const [beatsVolume, setBeatsVolume] = useState<number>(
+        initialSettings?.beatsVolume ??
+            EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_DEFAULT
+    );
 
     useEffect(() => {
         if (mode === "none") {
             // Bypass: play the untouched track - no time-stretch, no reverb, no spatialiser.
             onChange({ mode: "none", speedMultiplier: 1, reverbAmount: 0 });
         } else if (mode === "speed-up") {
-            onChange({ mode: "speed-up", speedMultiplier, reverbAmount: 0 });
+            onChange({
+                mode: "speed-up",
+                speedMultiplier,
+                reverbAmount: 0,
+                enableBeats,
+                beatsVolume,
+            });
         } else if (mode === "slow-reverb") {
             onChange({
                 mode: "slow-reverb",
@@ -120,8 +139,27 @@ export const EffectControls = memo(function EffectControls({ onChange, disabled,
         rotationSpeed,
         bassBoostIntensity,
         bassUnderwater,
+        enableBeats,
+        beatsVolume,
         onChange,
     ]);
+
+    // The beats volume slider appears BELOW the toggle, which sits near the bottom
+    // of the console's internal scroll area - on short viewports the revealed
+    // control would land entirely under the fold and the user would never see it.
+    // When the toggle flips on (not on a restored mount), bring it into view.
+    const beatsSliderRef = useRef<HTMLDivElement | null>(null);
+    const prevEnableBeatsRef = useRef(enableBeats);
+    useEffect(() => {
+        const was = prevEnableBeatsRef.current;
+        prevEnableBeatsRef.current = enableBeats;
+        if (!enableBeats || was) return;
+        // Optional call: jsdom (tests) doesn't implement scrollIntoView.
+        beatsSliderRef.current?.scrollIntoView?.({
+            block: "nearest",
+            behavior: prefersReducedMotion() ? "auto" : "smooth",
+        });
+    }, [enableBeats]);
 
     // Effects are exclusive: selecting an inactive one makes it Active. Clicking the
     // *already-active* effect powers it off, dropping back to "none" - the untouched
@@ -319,6 +357,40 @@ export const EffectControls = memo(function EffectControls({ onChange, disabled,
                             {active.sliders.map((slider) => (
                                 <EffectSlider key={slider.id} {...slider} disabled={disabled} />
                             ))}
+                            {mode === "speed-up" && (
+                                <div className="space-y-4 border-t border-[rgba(var(--color-border),0.4)] pt-5">
+                                    <BeatToggle
+                                        label={t("effects.nightcoreBeats")}
+                                        description={t("effects.nightcoreBeatsHint")}
+                                        pressed={enableBeats}
+                                        onToggle={() => setEnableBeats((v) => !v)}
+                                        disabled={disabled}
+                                    />
+                                    {enableBeats && (
+                                        <div
+                                            ref={beatsSliderRef}
+                                            className="space-y-5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300"
+                                        >
+                                            <EffectSlider
+                                                id="beats-volume-slider"
+                                                label={t("effects.beatVolume")}
+                                                value={beatsVolume}
+                                                onChange={setBeatsVolume}
+                                                defaultValue={EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_DEFAULT}
+                                                min={EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_MIN}
+                                                max={EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_MAX}
+                                                step={EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_STEP}
+                                                formatValue={formatPercentage}
+                                                markers={[
+                                                    `${Math.round(EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_MIN * 100)}%`,
+                                                    `${Math.round(EFFECT_DEFAULTS.NIGHTCORE_BEATS.VOLUME_MAX * 100)}%`,
+                                                ]}
+                                                disabled={disabled}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <p className="py-2 text-sm text-[rgb(var(--color-text-secondary))]">

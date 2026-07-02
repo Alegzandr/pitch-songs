@@ -30,9 +30,9 @@
     "speedUp": "Acelerar",
     "slowReverb": "Lento + Reverb",
     "8dAudio": "Áudio 8D",
-    "bassBoost": "Realce de Graves",
+    "bassBoost": "Realce de graves",
     "speed": "Velocidade",
-    "slowSpeed": "Velocidade Lenta",
+    "slowSpeed": "Velocidade lenta",
     "reverb": "Reverberação",
     "rotationSpeed": "Velocidade de rotação",
     "bassIntensity": "Intensidade",
@@ -42,6 +42,9 @@
     "underwater": "Debaixo d'água",
     "underwaterSurface": "Superfície",
     "underwaterDeep": "Profundo",
+    "nightcoreBeats": "Batida nightcore",
+    "nightcoreBeatsHint": "Adiciona uma percussão 4/4 à aceleração",
+    "beatVolume": "Volume da batida",
     "apply": "Aplicar efeitos",
     "processing": "Processando..."
   },
@@ -63,7 +66,7 @@
     "bitrate": "Taxa de bits",
     "sampleRate": "Taxa amostragem",
     "channels": "Canais",
-    "bitDepth": "Profundidade de Bits",
+    "bitDepth": "Profundidade de bits",
     "mono": "Mono",
     "stereo": "Estéreo"
   },
@@ -73,11 +76,11 @@
       "desc": "Velocidade, lento + reverb, 8D, graves"
     },
     "private": {
-      "title": "100% Privado",
+      "title": "100% privado",
       "desc": "Seus arquivos nunca saem do seu dispositivo"
     },
     "export": {
-      "title": "Exportação Instantânea",
+      "title": "Exportação instantânea",
       "desc": "Mesmo formato e qualidade do original"
     }
   },
@@ -98,7 +101,9 @@
     "scrub": "Mover na linha do tempo",
     "raw": "Bruto",
     "fx": "FX",
-    "toggleRemaining": "Mostrar o tempo restante"
+    "toggleRemaining": "Mostrar o tempo restante",
+    "tempo": "{{bpm}} BPM · {{meter}}",
+    "tempoScaled": "{{bpm}} ({{original}}) BPM · {{meter}}"
   },
   "language": {
     "open": "Abrir seletor de idioma",
@@ -143,6 +148,8 @@
     "allMoods": "Todos os ambientes",
     "active": "Ativo",
     "inactive": "Inativo",
-    "levels": "Níveis"
+    "levels": "Níveis",
+    "backdrop": "Imagem de fundo",
+    "backdropHint": "Mostrar a foto atrás da cena"
   }
 }

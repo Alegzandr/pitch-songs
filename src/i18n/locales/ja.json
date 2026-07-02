@@ -42,6 +42,9 @@
     "underwater": "水中",
     "underwaterSurface": "水面",
     "underwaterDeep": "深い",
+    "nightcoreBeats": "ナイトコア ビート",
+    "nightcoreBeatsHint": "スピードアップに 4/4 のビートを重ねる",
+    "beatVolume": "ビート音量",
     "apply": "エフェクトを適用",
     "processing": "処理中..."
   },
@@ -98,7 +101,9 @@
     "scrub": "タイムラインをスクラブ",
     "raw": "元の音源",
     "fx": "エフェクト",
-    "toggleRemaining": "残り時間を表示"
+    "toggleRemaining": "残り時間を表示",
+    "tempo": "{{bpm}} BPM · {{meter}}",
+    "tempoScaled": "{{bpm}} ({{original}}) BPM · {{meter}}"
   },
   "language": {
     "open": "言語選択を開く",
@@ -143,6 +148,8 @@
     "allMoods": "すべてのムード",
     "active": "オン",
     "inactive": "オフ",
-    "levels": "レベル"
+    "levels": "レベル",
+    "backdrop": "背景画像",
+    "backdropHint": "シーンの背後に写真を表示"
   }
 }

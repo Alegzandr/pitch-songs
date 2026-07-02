@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { AUDIO_PROCESSING } from '../constants';
 
 export interface UseScrubberOptions {
   /** Total clip duration in seconds; a falsy duration disables interaction. */
@@ -7,7 +8,7 @@ export interface UseScrubberOptions {
   onSeek: (time: number) => void;
   /** Element whose bounding rect maps a pointer X to a 0..1 ratio (also receives pointer capture). */
   surfaceRef: React.RefObject<HTMLElement | null>;
-  /** Current playhead time, read lazily for the ArrowLeft/ArrowRight ±5s seeks. */
+  /** Current playhead time, read lazily for the ArrowLeft/ArrowRight step seeks. */
   getTime: () => number;
   disabled?: boolean;
   /** Visual-only playhead update during a press/drag (no seek). */
@@ -98,8 +99,9 @@ export function useScrubber({
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (disabled || !duration) return;
-    if (event.key === 'ArrowRight') onSeek(Math.min(duration, getTime() + 5));
-    if (event.key === 'ArrowLeft') onSeek(Math.max(0, getTime() - 5));
+    const step = AUDIO_PROCESSING.SEEK_STEP_SECONDS;
+    if (event.key === 'ArrowRight') onSeek(Math.min(duration, getTime() + step));
+    if (event.key === 'ArrowLeft') onSeek(Math.max(0, getTime() - step));
   };
 
   return {
