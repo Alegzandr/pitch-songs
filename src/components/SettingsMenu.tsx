@@ -148,6 +148,7 @@ export const SettingsMenu = memo(function SettingsMenu({ trigger }: SettingsMenu
                         step={EQ.GAIN_STEP_DB}
                         value={value}
                         onChange={(e) => setBandGain(i, parseFloat(e.target.value))}
+                        onDoubleClick={() => setBandGain(i, 0)}
                         aria-label={t('settings.eqBand', { freq: bandLabel })}
                         aria-valuetext={`${value > 0 ? `+${value}` : value} dB`}
                         style={{ '--range': `${range}%` } as CSSProperties}

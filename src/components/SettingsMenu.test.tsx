@@ -70,4 +70,12 @@ describe('SettingsMenu', () => {
     fireEvent.change(screen.getByLabelText('settings.eqBand:60Hz'), { target: { value: '4' } });
     expect(mockSetBandGain).toHaveBeenCalledWith(0, 4);
   });
+
+  it('resets a band to zero on double click', async () => {
+    renderMenu();
+
+    await userEvent.click(screen.getByLabelText('settings.open'));
+    fireEvent.doubleClick(screen.getByLabelText('settings.eqBand:60Hz'));
+    expect(mockSetBandGain).toHaveBeenCalledWith(0, 0);
+  });
 });
