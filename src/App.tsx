@@ -165,9 +165,14 @@ function App() {
 
   const handleFileSelect = useCallback(
     async (file: File) => {
-      await loadAudioFile(file);
+      // Swapping tracks mid-listen should feel like a playlist skip: if music was
+      // playing when the new file was picked, the new track starts right away
+      // instead of landing paused and demanding a second gesture.
+      const wasPlaying = state.isPlaying;
+      const buffer = await loadAudioFile(file);
+      if (wasPlaying && buffer) playAudio(buffer, 0);
     },
-    [loadAudioFile]
+    [loadAudioFile, playAudio, state.isPlaying]
   );
 
   const handleReset = useCallback(() => {
@@ -203,9 +208,23 @@ function App() {
 
   // Spacebar toggles play/pause, like a classic media player. Ignored while the
   // user is typing in a field or focused on a control space would already act on,
-  // so we don't hijack the key or fire the transport twice.
+  // so we don't hijack the key or fire the transport twice. Buttons only keep
+  // space when they were focused by keyboard (:focus-visible): a mouse click
+  // leaves residual focus on whatever button was pressed last, and letting it
+  // swallow space made the key re-trigger that button (mode toggles, the file
+  // picker...) instead of the transport.
   useEffect(() => {
     if (!hasPlayableAudio || state.isExporting) return;
+
+    const isKeyboardFocused = (el: HTMLElement) => {
+      try {
+        return el.matches(':focus-visible');
+      } catch {
+        // Selector unsupported (older jsdom): keep the conservative pre-existing
+        // behavior and let the focused control handle the key itself.
+        return true;
+      }
+    };
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== 'Space' && e.key !== ' ') return;
@@ -215,9 +234,15 @@ function App() {
       if (
         tag === 'INPUT' ||
         tag === 'TEXTAREA' ||
-        tag === 'BUTTON' ||
         tag === 'SELECT' ||
         target?.isContentEditable
+      ) {
+        return;
+      }
+      if (
+        target &&
+        (tag === 'BUTTON' || target.closest('button, [role="button"]')) &&
+        isKeyboardFocused(target)
       ) {
         return;
       }

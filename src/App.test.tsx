@@ -143,6 +143,62 @@ describe('App', () => {
     expect(mockApi.loadAudioFile).toHaveBeenCalledWith(file);
   });
 
+  it('resumes playback on the new track when swapping files mid-play', async () => {
+    const oldFile = new File(['old'], 'old.mp3', { type: 'audio/mp3' });
+    const newFile = new File(['new'], 'new.mp3', { type: 'audio/mp3' });
+    const newBuffer = new AudioBuffer({ length: 1, numberOfChannels: 1, sampleRate: 44100 });
+    mockApi.originalFile = oldFile;
+    mockState.isPlaying = true;
+    mockApi.loadAudioFile.mockResolvedValueOnce(newBuffer);
+
+    renderWithRouter(<App />);
+
+    await userEvent.upload(screen.getByLabelText('upload.browse'), newFile);
+    expect(mockApi.loadAudioFile).toHaveBeenCalledWith(newFile);
+    expect(mockApi.playAudio).toHaveBeenCalledWith(newBuffer, 0);
+  });
+
+  it('keeps the new track paused when swapping files while stopped', async () => {
+    const newFile = new File(['new'], 'new.mp3', { type: 'audio/mp3' });
+    mockApi.originalFile = new File(['old'], 'old.mp3', { type: 'audio/mp3' });
+    mockApi.loadAudioFile.mockResolvedValueOnce(
+      new AudioBuffer({ length: 1, numberOfChannels: 1, sampleRate: 44100 })
+    );
+
+    renderWithRouter(<App />);
+
+    await userEvent.upload(screen.getByLabelText('upload.browse'), newFile);
+    expect(mockApi.playAudio).not.toHaveBeenCalled();
+  });
+
+  it('space toggles playback despite residual (non-keyboard) focus on a button', () => {
+    mockApi.originalFile = new File(['123'], 'song.mp3', { type: 'audio/mp3' });
+    mockApi.originalBuffer = new AudioBuffer({ length: 1, numberOfChannels: 1, sampleRate: 44100 });
+    mockApi.duration = 1.5;
+
+    renderWithRouter(<App />);
+
+    // A button that is the event target but NOT keyboard-focused (:focus-visible)
+    // must not swallow the key: space stays a transport control.
+    const modeButton = screen.getByText('effects.8dAudio').closest('button')!;
+    fireEvent.keyDown(modeButton, { code: 'Space', key: ' ' });
+    expect(mockApi.playAudio).toHaveBeenCalledWith(mockApi.originalBuffer, 0);
+  });
+
+  it('space is ignored while typing in a field', () => {
+    mockApi.originalFile = new File(['123'], 'song.mp3', { type: 'audio/mp3' });
+    mockApi.originalBuffer = new AudioBuffer({ length: 1, numberOfChannels: 1, sampleRate: 44100 });
+    mockApi.duration = 1.5;
+
+    renderWithRouter(<App />);
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { code: 'Space', key: ' ' });
+    expect(mockApi.playAudio).not.toHaveBeenCalled();
+    input.remove();
+  });
+
   it('shows loading progress message', () => {
     mockState.isLoading = true;
     mockState.progress = 50;
